@@ -17,7 +17,7 @@ export class Tab {
       webPreferences: {
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: true,
+        sandbox: false,
         webSecurity: true,
       },
     });

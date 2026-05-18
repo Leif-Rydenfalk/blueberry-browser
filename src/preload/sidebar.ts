@@ -17,6 +17,33 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface AgentSessionRequest {
+  readonly goal: string;
+  readonly context?: {
+    readonly pageUrl: string | null;
+    readonly pageText: string | null;
+  };
+  readonly mode: 'single-tab' | 'multi-tab';
+}
+
+interface AgentStreamUpdate {
+  readonly step: number;
+  readonly totalSteps: number;
+  readonly action: {
+    readonly type: string;
+    readonly params: Record<string, unknown>;
+    readonly reasoning: string;
+  };
+  readonly status: 'pending' | 'running' | 'success' | 'error';
+  readonly result?: {
+    readonly success: boolean;
+    readonly data?: unknown;
+    readonly error?: string;
+  };
+  readonly screenshot?: string;
+  readonly sessionId: string;
+}
+
 // Sidebar specific APIs
 const sidebarAPI = {
   // Chat functionality
@@ -24,7 +51,6 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.invoke("sidebar-chat-message", request),
 
   clearChat: () => electronAPI.ipcRenderer.invoke("sidebar-clear-chat"),
-
   getMessages: () => electronAPI.ipcRenderer.invoke("sidebar-get-messages"),
 
   onChatResponse: (callback: (data: ChatResponse) => void) => {
@@ -52,11 +78,29 @@ const sidebarAPI = {
 
   // Tab information
   getActiveTabInfo: () => electronAPI.ipcRenderer.invoke("get-active-tab-info"),
+
+  // Agent functionality
+  startAgentSession: (request: AgentSessionRequest) =>
+    electronAPI.ipcRenderer.invoke("agent:start-session", request),
+
+  abortAgentSession: () =>
+    electronAPI.ipcRenderer.invoke("agent:abort-session"),
+
+  sendMessageToAgent: (message: string) =>
+    electronAPI.ipcRenderer.invoke("agent:send-message", message),
+
+  getAgentStatus: () =>
+    electronAPI.ipcRenderer.invoke("agent:get-status"),
+
+  onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => {
+    electronAPI.ipcRenderer.on("agent:stream-update", (_, data) => callback(data));
+  },
+
+  removeAgentUpdateListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent:stream-update");
+  },
 };
 
-// Use `contextBridge` APIs to expose Electron APIs to
-// renderer only if context isolation is enabled, otherwise
-// just add to the DOM global.
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld("electron", electronAPI);
@@ -65,8 +109,8 @@ if (process.contextIsolated) {
     console.error(error);
   }
 } else {
-  // @ts-ignore (define in dts)
+  // @ts-ignore
   window.electron = electronAPI;
-  // @ts-ignore (define in dts)
+  // @ts-ignore
   window.sidebarAPI = sidebarAPI;
 }

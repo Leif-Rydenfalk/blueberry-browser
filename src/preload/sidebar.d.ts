@@ -16,6 +16,33 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface AgentSessionRequest {
+  readonly goal: string;
+  readonly context?: {
+    readonly pageUrl: string | null;
+    readonly pageText: string | null;
+  };
+  readonly mode: 'single-tab' | 'multi-tab';
+}
+
+interface AgentStreamUpdate {
+  readonly step: number;
+  readonly totalSteps: number;
+  readonly action: {
+    readonly type: string;
+    readonly params: Record<string, unknown>;
+    readonly reasoning: string;
+  };
+  readonly status: 'pending' | 'running' | 'success' | 'error';
+  readonly result?: {
+    readonly success: boolean;
+    readonly data?: unknown;
+    readonly error?: string;
+  };
+  readonly screenshot?: string;
+  readonly sessionId: string;
+}
+
 interface TabInfo {
   id: string;
   title: string;
@@ -24,18 +51,23 @@ interface TabInfo {
 }
 
 interface SidebarAPI {
-  // Chat functionality
-  sendChatMessage: (request: ChatRequest) => Promise<void>;
+  sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
+  clearChat: () => Promise<void>;
+  getMessages: () => Promise<any[]>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
   removeChatResponseListener: () => void;
-
-  // Page content access
+  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
+  removeMessagesUpdatedListener: () => void;
   getPageContent: () => Promise<string | null>;
   getPageText: () => Promise<string | null>;
   getCurrentUrl: () => Promise<string | null>;
-
-  // Tab information
   getActiveTabInfo: () => Promise<TabInfo | null>;
+  startAgentSession: (request: AgentSessionRequest) => Promise<{ sessionId: string; status: string }>;
+  abortAgentSession: () => Promise<boolean>;
+  sendMessageToAgent: (message: string) => Promise<boolean>;
+  getAgentStatus: () => Promise<{ isRunning: boolean; activeSession: string | null }>;
+  onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => void;
+  removeAgentUpdateListener: () => void;
 }
 
 declare global {
@@ -45,3 +77,4 @@ declare global {
   }
 }
 
+export { };
