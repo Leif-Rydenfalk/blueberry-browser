@@ -18,12 +18,27 @@ interface StreamChunk {
   isComplete: boolean;
 }
 
-type LLMProvider = "openai" | "anthropic";
+export type LLMProvider = "openai" | "anthropic";
+
+export interface ModelOption {
+  readonly provider: LLMProvider;
+  readonly model: string;
+  readonly label: string;
+}
+
+export interface ModelSelection extends ModelOption {
+  readonly configured: boolean;
+}
 
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-3-5-sonnet-20241022",
 };
+
+const MODEL_OPTIONS: readonly ModelOption[] = [
+  { provider: "openai", model: "gpt-4o-mini", label: "OpenAI · GPT-4o mini" },
+  { provider: "anthropic", model: "claude-3-5-sonnet-20241022", label: "Claude · Sonnet 3.5" },
+];
 
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
@@ -31,16 +46,16 @@ const DEFAULT_TEMPERATURE = 0.7;
 export class LLMClient {
   private readonly webContents: WebContents;
   private window: Window | null = null;
-  private readonly provider: LLMProvider;
-  private readonly modelName: string;
-  public readonly model: LanguageModel | null;
+  private provider: LLMProvider;
+  private modelName: string;
+  public model: LanguageModel | null;
   private messages: CoreMessage[] = [];
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
     this.provider = this.getProvider();
     this.modelName = this.getModelName();
-    this.model = this.initializeModel();
+    this.model = this.initializeModel(this.provider, this.modelName);
     this.logInitializationStatus();
   }
 
@@ -58,22 +73,22 @@ export class LLMClient {
     return process.env.LLM_MODEL || DEFAULT_MODELS[this.provider];
   }
 
-  private initializeModel(): LanguageModel | null {
-    const apiKey = this.getApiKey();
+  private initializeModel(provider: LLMProvider, modelName: string): LanguageModel | null {
+    const apiKey = this.getApiKey(provider);
     if (!apiKey) return null;
 
-    switch (this.provider) {
+    switch (provider) {
       case "anthropic":
-        return anthropic(this.modelName);
+        return anthropic(modelName);
       case "openai":
-        return openai(this.modelName);
+        return openai(modelName);
       default:
         return null;
     }
   }
 
-  private getApiKey(): string | undefined {
-    switch (this.provider) {
+  private getApiKey(provider: LLMProvider = this.provider): string | undefined {
+    switch (provider) {
       case "anthropic":
         return process.env.ANTHROPIC_API_KEY;
       case "openai":
@@ -81,6 +96,47 @@ export class LLMClient {
       default:
         return undefined;
     }
+  }
+
+  getModelOptions(): readonly ModelOption[] {
+    const currentOption = MODEL_OPTIONS.some(
+      option => option.provider === this.provider && option.model === this.modelName
+    )
+      ? []
+      : [{ provider: this.provider, model: this.modelName, label: `${this.getProviderLabel(this.provider)} · ${this.modelName}` }];
+
+    return [...currentOption, ...MODEL_OPTIONS];
+  }
+
+  getModelSelection(): ModelSelection {
+    const option = this.getModelOptions().find(
+      candidate => candidate.provider === this.provider && candidate.model === this.modelName
+    );
+
+    return {
+      provider: this.provider,
+      model: this.modelName,
+      label: option?.label || `${this.getProviderLabel(this.provider)} · ${this.modelName}`,
+      configured: Boolean(this.model),
+    };
+  }
+
+  setModelSelection(provider: LLMProvider, modelName: string): ModelSelection {
+    const nextModel = this.initializeModel(provider, modelName);
+    if (!nextModel) {
+      const keyName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+      throw new Error(`${keyName} is not configured.`);
+    }
+
+    this.provider = provider;
+    this.modelName = modelName;
+    this.model = nextModel;
+    this.logInitializationStatus();
+    return this.getModelSelection();
+  }
+
+  private getProviderLabel(provider: LLMProvider): string {
+    return provider === "anthropic" ? "Claude" : "OpenAI";
   }
 
   private logInitializationStatus(): void {

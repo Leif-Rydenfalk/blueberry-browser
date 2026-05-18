@@ -180,6 +180,18 @@ export class EventManager {
     ipcMain.handle("sidebar-get-messages", () => {
       return this.mainWindow.sidebar.client.getMessages();
     });
+
+    ipcMain.handle("sidebar-get-model-options", () => {
+      return this.mainWindow.sidebar.client.getModelOptions();
+    });
+
+    ipcMain.handle("sidebar-get-model-selection", () => {
+      return this.mainWindow.sidebar.client.getModelSelection();
+    });
+
+    ipcMain.handle("sidebar-set-model-selection", (_, selection: { provider: "openai" | "anthropic"; model: string }) => {
+      return this.mainWindow.sidebar.client.setModelSelection(selection.provider, selection.model);
+    });
   }
 
   private handlePageContentEvents(): void {

@@ -8,6 +8,16 @@ import { Square, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePo
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
 
+interface ModelOption {
+  readonly provider: 'openai' | 'anthropic'
+  readonly model: string
+  readonly label: string
+}
+
+interface ModelSelection extends ModelOption {
+  readonly configured: boolean
+}
+
 const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
   switch (type) {
     case 'navigate': return <Navigation className="size-3" />
@@ -100,11 +110,32 @@ export const AgentPanel: React.FC = () => {
   const { messages, isRunning, currentStep, maxSteps, goal, startAgent, abortAgent, sendMessage, clearAgent } = useAgent()
   const [input, setInput] = useState('')
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+  const [modelOptions, setModelOptions] = useState<ModelOption[]>([])
+  const [modelSelection, setModelSelection] = useState<ModelSelection | null>(null)
+  const [modelError, setModelError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    const loadModelSettings = async () => {
+      try {
+        const [options, selection] = await Promise.all([
+          window.sidebarAPI.getModelOptions(),
+          window.sidebarAPI.getModelSelection(),
+        ])
+        setModelOptions(options)
+        setModelSelection(selection)
+      } catch (error) {
+        console.error('Failed to load model settings:', error)
+        setModelError('Models unavailable')
+      }
+    }
+
+    loadModelSettings()
+  }, [])
 
   const toggleStep = (stepId: string) => {
     setExpandedSteps(prev => {
@@ -133,6 +164,24 @@ export const AgentPanel: React.FC = () => {
     }
   }
 
+  const handleModelChange = async (value: string) => {
+    const [provider, model] = value.split(':')
+    if ((provider !== 'openai' && provider !== 'anthropic') || !model) return
+
+    setModelError(null)
+    try {
+      const selection = await window.sidebarAPI.setModelSelection({ provider, model })
+      setModelSelection(selection)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to switch model'
+      setModelError(message)
+    }
+  }
+
+  const selectedModelValue = modelSelection
+    ? `${modelSelection.provider}:${modelSelection.model}`
+    : ''
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
@@ -149,6 +198,22 @@ export const AgentPanel: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <select
+            value={selectedModelValue}
+            onChange={(event) => handleModelChange(event.target.value)}
+            disabled={isRunning || modelOptions.length === 0}
+            className={cn(
+              "h-7 max-w-[150px] rounded-md border border-border/50 bg-background px-2 text-xs text-foreground outline-none",
+              "focus:border-primary/40 disabled:cursor-not-allowed disabled:opacity-50"
+            )}
+            title={modelError || modelSelection?.label || 'Model'}
+          >
+            {modelOptions.map((option) => (
+              <option key={`${option.provider}:${option.model}`} value={`${option.provider}:${option.model}`}>
+                {option.label}
+              </option>
+            ))}
+          </select>
           {messages.length > 0 && !isRunning && (
             <Button onClick={clearAgent} variant="ghost" size="sm" className="h-7 text-xs gap-1">
               <Square className="size-3" /> Clear
@@ -161,6 +226,11 @@ export const AgentPanel: React.FC = () => {
           )}
         </div>
       </div>
+      {modelError && (
+        <div className="border-b border-border/30 px-4 py-1 text-xs text-red-500">
+          {modelError}
+        </div>
+      )}
 
       {/* Progress bar */}
       {isRunning && (

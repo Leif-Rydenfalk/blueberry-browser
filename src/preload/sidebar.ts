@@ -44,6 +44,16 @@ interface AgentStreamUpdate {
   readonly sessionId: string;
 }
 
+interface ModelOption {
+  readonly provider: 'openai' | 'anthropic';
+  readonly model: string;
+  readonly label: string;
+}
+
+interface ModelSelection extends ModelOption {
+  readonly configured: boolean;
+}
+
 // Sidebar specific APIs
 const sidebarAPI = {
   // Chat functionality
@@ -52,6 +62,10 @@ const sidebarAPI = {
 
   clearChat: () => electronAPI.ipcRenderer.invoke("sidebar-clear-chat"),
   getMessages: () => electronAPI.ipcRenderer.invoke("sidebar-get-messages"),
+  getModelOptions: () => electronAPI.ipcRenderer.invoke("sidebar-get-model-options"),
+  getModelSelection: () => electronAPI.ipcRenderer.invoke("sidebar-get-model-selection"),
+  setModelSelection: (selection: Pick<ModelSelection, "provider" | "model">) =>
+    electronAPI.ipcRenderer.invoke("sidebar-set-model-selection", selection),
 
   onChatResponse: (callback: (data: ChatResponse) => void) => {
     electronAPI.ipcRenderer.on("chat-response", (_, data) => callback(data));

@@ -43,6 +43,16 @@ interface AgentStreamUpdate {
   readonly sessionId: string;
 }
 
+interface ModelOption {
+  readonly provider: 'openai' | 'anthropic';
+  readonly model: string;
+  readonly label: string;
+}
+
+interface ModelSelection extends ModelOption {
+  readonly configured: boolean;
+}
+
 interface TabInfo {
   id: string;
   title: string;
@@ -54,6 +64,9 @@ interface SidebarAPI {
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
   clearChat: () => Promise<void>;
   getMessages: () => Promise<any[]>;
+  getModelOptions: () => Promise<ModelOption[]>;
+  getModelSelection: () => Promise<ModelSelection>;
+  setModelSelection: (selection: Pick<ModelSelection, "provider" | "model">) => Promise<ModelSelection>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
   removeChatResponseListener: () => void;
   onMessagesUpdated: (callback: (messages: any[]) => void) => void;
