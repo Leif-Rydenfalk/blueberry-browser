@@ -12,6 +12,10 @@ const createWindow = (): Window => {
   const window = new Window();
   menu = new AppMenu(window);
   eventManager = new EventManager(window);
+  // Hook future tabs into the workflow recorder
+  window.setOnTabCreated((tab) => {
+    eventManager!.getWorkflowHandler().hookNewTab(tab);
+  });
   return window;
 };
 

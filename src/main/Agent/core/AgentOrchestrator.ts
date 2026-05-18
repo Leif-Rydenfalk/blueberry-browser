@@ -6,6 +6,7 @@ import type {
   AgentStep,
   AgentStreamUpdate,
   AgentSessionRequest,
+  AgentTaskProfile,
 } from "../types/AgentTypes";
 import { SingleTabStrategy } from "../strategies/SingleTabStrategy";
 import { AgentRunner } from "./AgentRunner";
@@ -27,14 +28,18 @@ export class AgentOrchestrator {
 
   async startSession(request: AgentSessionRequest): Promise<AgentSession> {
     const sessionId = uuidv4();
+    const profile = this.classifyTask(request.goal);
+    const longRunning = profile === "repetitive" || profile === "communication";
 
     const config: AgentConfig = {
-      maxSteps: request.goal.toLowerCase().includes('scroll') || request.goal.toLowerCase().includes('like') ? 50 : 15,
+      maxSteps: this.getMaxSteps(profile, request.goal),
       model: "gpt-4o-mini",
       temperature: 0.7,
       strategy: request.mode,
-      maxDurationMs: 10 * 60 * 1000, // 10 minutes max
-      loopMode: request.goal.toLowerCase().includes('scroll') || request.goal.toLowerCase().includes('while'),
+      maxDurationMs: this.getMaxDurationMs(profile),
+      loopMode: longRunning || this.hasAny(request.goal, ["while", "until", "repeat"]),
+      taskProfile: profile,
+      targetPaceMs: profile === "repetitive" ? 1200 : 700,
     };
 
     const session: AgentSession = {
@@ -169,5 +174,81 @@ export class AgentOrchestrator {
 
   isRunning(): boolean {
     return this.activeRunner?.isActive() ?? false;
+  }
+
+  private classifyTask(goal: string): AgentTaskProfile {
+    if (this.hasAny(goal, [
+      "scroll",
+      "like",
+      "linkedin feed",
+      "tiktok",
+      "instagram",
+      "for a while",
+      "repetitive",
+      "repeat",
+    ])) {
+      return "repetitive";
+    }
+
+    if (this.hasAny(goal, [
+      "inbox",
+      "email",
+      "mail",
+      "gmail",
+      "outlook",
+      "reply",
+      "respond",
+      "message",
+      "dm",
+    ])) {
+      return "communication";
+    }
+
+    if (this.hasAny(goal, ["find", "research", "compare", "look up", "browse"])) {
+      return "research";
+    }
+
+    return "quick";
+  }
+
+  private getMaxSteps(profile: AgentTaskProfile, goal: string): number {
+    const explicitCount = goal.match(/\b(\d{1,3})\s+(videos?|posts?|emails?|messages?|items?|times?|likes?|replies?)\b/i);
+    if (explicitCount) {
+      const requested = Number(explicitCount[1]);
+      if (Number.isFinite(requested) && requested > 0) {
+        return Math.min(Math.max(requested * 6, 30), 500);
+      }
+    }
+
+    switch (profile) {
+      case "repetitive":
+        return 300;
+      case "communication":
+        return 180;
+      case "research":
+        return 60;
+      case "quick":
+      default:
+        return 20;
+    }
+  }
+
+  private getMaxDurationMs(profile: AgentTaskProfile): number {
+    switch (profile) {
+      case "repetitive":
+        return 60 * 60 * 1000;
+      case "communication":
+        return 45 * 60 * 1000;
+      case "research":
+        return 20 * 60 * 1000;
+      case "quick":
+      default:
+        return 10 * 60 * 1000;
+    }
+  }
+
+  private hasAny(text: string, needles: readonly string[]): boolean {
+    const lower = text.toLowerCase();
+    return needles.some(needle => lower.includes(needle));
   }
 }

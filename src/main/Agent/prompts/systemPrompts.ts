@@ -1,7 +1,7 @@
 import type { AgentContext } from "../types/AgentTypes";
 
 export function buildReActPrompt(context: AgentContext): string {
-  const { goal, history, currentUrl, pageText } = context;
+  const { goal, history, currentUrl, pageText, profile, loopMode, stepBudget, elapsedMs, remainingMs } = context;
   const memory = (context as AgentContext & { memory?: string }).memory;
 
   const recentHistory = history.slice(-8);
@@ -23,6 +23,11 @@ export function buildReActPrompt(context: AgentContext): string {
     ? `\nWorking memory:\n${memory}`
     : "";
 
+  const runContext = `\nRun mode: ${profile || "quick"}${loopMode ? " loop" : ""}
+Step budget: ${stepBudget || "unknown"}
+Elapsed: ${formatDuration(elapsedMs || 0)}
+Remaining: ${remainingMs === undefined ? "unknown" : formatDuration(remainingMs)}`;
+
   return `You are Blueberry AI, a browser automation agent. Use only browser-visible evidence, page text, screenshots, and working memory from this run.
 
 DEFAULT BEHAVIOR:
@@ -36,15 +41,30 @@ FOR TIKTOK / SCROLLING TASKS:
 - TikTok blocks JavaScript injection. Use native interactions with coordinates.
 - The like button is typically at the right side of the screen, around x=1200, y=500 (adjust based on viewport).
 - To scroll: use scroll action with direction "down" and amount 800.
+- If wheel scrolling does not advance the feed, use key with "ArrowDown", "PageDown", or "Space".
 - To like: use click with x,y coordinates where the heart icon is.
 - Analyze the screenshot to determine if content is business-related.
 - Loop pattern: scroll → screenshot → analyze → like if business → repeat.
 - Use finish only when you've completed the requested number of interactions.
 
+LONG-RUNNING / REPETITIVE TASKS:
+- Keep a compact count in working memory: posts reviewed, matches found, likes/clicks done, replies drafted/sent.
+- Continue the observe → decide → act loop until the user's target, the step budget, or the time budget is reached.
+- If the user did not give a target count, use the available run budget and summarize totals at finish.
+- Do not finish early just because one item is irrelevant; skip it and continue.
+- If an action fails, try a different reasonable interaction path before giving up.
+
+INBOX / MESSAGE TASKS:
+- Use visible thread context only. Open messages, read enough context, then draft concise replies.
+- For contenteditable composers, use type with a selector for [contenteditable="true"] or role="textbox"; use x/y typing if selectors fail.
+- Do not send purchases, financial/legal/medical commitments, password/security changes, or sensitive personal disclosures. Finish and ask for confirmation instead.
+- If the user asked you to reply/respond/send mail in this run, you may click Send only after the composed text is visible and matches the thread. Otherwise draft and finish with what you prepared.
+- Never mass-message people or post comments unless the user explicitly requested that exact action.
+
 If the user asks a simple greeting or casual question (like "whats up dawg?") you can answer directly, use finish with a friendly response.
 If the user asks for information that is not available on the current page, browse the web to find it.
 
-Task: ${goal}
+Task: ${goal}${runContext}
 URL: ${currentUrl || "unknown"}${memoryContext}${pageContext}
 
 Recent actions:
@@ -53,8 +73,10 @@ ${historyText}
 Available actions (JSON only):
 - navigate: {"type":"navigate","params":{"url":"..."},"reasoning":"..."}
 - click: {"type":"click","params":{"selector":"css-selector","x":100,"y":200},"reasoning":"..."} (selector or x/y may be used)
-- type: {"type":"type","params":{"selector":"css-selector","text":"...","clearFirst":true},"reasoning":"..."}
+- type: {"type":"type","params":{"selector":"css-selector","text":"...","clearFirst":true},"reasoning":"..."} (selector or x/y may be used)
+- key: {"type":"key","params":{"key":"ArrowDown","modifiers":[]},"reasoning":"..."}
 - scroll: {"type":"scroll","params":{"direction":"down","amount":500},"reasoning":"..."}
+- wait: {"type":"wait","params":{"duration":1000},"reasoning":"..."}
 - extract: {"type":"extract","params":{"selector":"css-selector","attribute":"text","name":"key"},"reasoning":"..."}
 - finish: {"type":"finish","params":{"answer":"..."},"reasoning":"..."}
 
@@ -63,12 +85,21 @@ CRITICAL RULES:
 2. If clicks fail due to CSP, include x,y coordinates (from previous successful screenshot analysis) in your next click attempt.
 3. If you see "CSP_BLOCKED", use finish IMMEDIATELY with your best answer from what you've observed.
 4. NEVER request screenshot — I automatically capture the page after every action.
-5. If stuck after 2 failed actions, use finish with your best answer.
+5. For quick tasks, if stuck after 2 failed actions, use finish with your best answer. For loop/long tasks, recover, skip, scroll, wait, or use coordinates before finishing.
 6. Keep reasoning under 80 chars.
 7. finish MUST include a helpful answer based ONLY on what you observed in the browser.
 8. NEVER answer from memory — always browse first.
 
 Respond with your next action:`;
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes <= 0) return `${seconds}s`;
+  return `${minutes}m ${seconds}s`;
 }
 
 export function buildSystemPrompt(): string {

@@ -10,6 +10,7 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
+  private _onTabCreated: ((tab: Tab) => void) | null = null;
 
   constructor() {
     // Create the browser window.
@@ -88,6 +89,10 @@ export class Window {
     return this.tabsMap.size;
   }
 
+  setOnTabCreated(cb: (tab: Tab) => void): void {
+    this._onTabCreated = cb;
+  }
+
   // Tab management methods
   createTab(url?: string): Tab {
     const tabId = `tab-${++this.tabCounter}`;
@@ -107,6 +112,7 @@ export class Window {
 
     // Store the tab
     this.tabsMap.set(tabId, tab);
+    this._onTabCreated?.(tab);
 
     // If this is the first tab, make it active
     if (this.tabsMap.size === 1) {

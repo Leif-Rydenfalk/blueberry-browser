@@ -22,7 +22,9 @@ export class ActionExecutor {
         case "click":
           return await this.executeClick(tab, action.params as { selector?: string; x?: number; y?: number });
         case "type":
-          return await this.executeType(tab, action.params as { selector: string; text: string; clearFirst?: boolean });
+          return await this.executeType(tab, action.params as { selector?: string; text: string; clearFirst?: boolean; x?: number; y?: number });
+        case "key":
+          return await this.executeKey(tab, action.params as { key: string; modifiers?: Array<'control' | 'shift' | 'alt' | 'meta'> });
         case "scroll":
           return await this.executeScroll(tab, action.params as { direction: string; amount?: number; selector?: string });
         case "wait":
@@ -126,40 +128,93 @@ export class ActionExecutor {
     }
   }
 
-  private async executeType(tab: Tab, params: { selector: string; text: string; clearFirst?: boolean }): Promise<ActionResult> {
+  private async executeType(tab: Tab, params: { selector?: string; text: string; clearFirst?: boolean; x?: number; y?: number }): Promise<ActionResult> {
+    const selector = params.selector;
+    if (!selector && (params.x === undefined || params.y === undefined)) {
+      return {
+        success: false,
+        error: "Type needs either a CSS selector or x/y coordinates",
+        recoverable: true,
+      };
+    }
+
+    if (params.x !== undefined && params.y !== undefined) {
+      await this.nativeClick(tab, params.x, params.y);
+      await this.sleep(120);
+      await this.nativeType(tab, params.text);
+      await this.sleep(300);
+      return { success: true, data: { method: "native", x: params.x, y: params.y } };
+    }
+
+    if (!selector) {
+      return {
+        success: false,
+        error: "Type needs a CSS selector when coordinates are not provided",
+        recoverable: true,
+      };
+    }
+
     const code = `
       (function() {
-        const el = document.querySelector(${JSON.stringify(params.selector)});
-        if (!el) return { error: "Element not found: ${params.selector.replace(/"/g, '\\"')}" };
+        const el = document.querySelector(${JSON.stringify(selector)});
+        if (!el) return { error: "Element not found: ${selector.replace(/"/g, '\\"')}" };
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.focus();
-        if (${params.clearFirst ?? false} && el.value) {
-          el.value = '';
-          el.dispatchEvent(new Event('input', { bubbles: true }));
-        }
         const text = ${JSON.stringify(params.text)};
-        for (let i = 0; i < text.length; i++) {
-          const char = text[i];
-          el.dispatchEvent(new KeyboardEvent('keydown', { key: char, bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent('keypress', { key: char, bubbles: true }));
-          if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
-            el.value += char;
+        const clearFirst = ${params.clearFirst ?? false};
+
+        if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+          if (clearFirst) {
+            el.value = '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
           }
-          el.dispatchEvent(new InputEvent('input', { data: char, bubbles: true }));
-          el.dispatchEvent(new KeyboardEvent('keyup', { key: char, bubbles: true }));
+          const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+          if (setter) setter.call(el, (el.value || '') + text);
+          else el.value = (el.value || '') + text;
+          el.dispatchEvent(new InputEvent('input', { data: text, inputType: 'insertText', bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          return { success: true, value: el.value, target: el.tagName };
         }
-        if (el.tagName === 'INPUT' && el.type === 'search') {
-          el.form?.dispatchEvent(new Event('submit', { bubbles: true }));
+
+        const editable = el.isContentEditable || el.getAttribute('role') === 'textbox';
+        if (editable) {
+          if (clearFirst) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const selection = window.getSelection();
+            selection?.removeAllRanges();
+            selection?.addRange(range);
+            document.execCommand('delete');
+          }
+          const inserted = document.execCommand('insertText', false, text);
+          if (!inserted) {
+            el.textContent = (clearFirst ? '' : el.textContent || '') + text;
+          }
+          el.dispatchEvent(new InputEvent('input', { data: text, inputType: 'insertText', bubbles: true }));
+          return { success: true, value: el.textContent, target: 'contenteditable' };
         }
-        return { success: true, value: el.value };
+
+        return { error: "Element is not text-editable" };
       })()
     `;
-    const result = await tab.runJs(code);
-    if (result && result.error) {
-      return { success: false, error: result.error, recoverable: true };
+    try {
+      const result = await tab.runJs(code);
+      if (result && result.error) {
+        return { success: false, error: result.error, recoverable: true };
+      }
+      await this.sleep(500);
+      return { success: true, data: result };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Type failed";
+      return { success: false, error: msg, recoverable: true };
     }
-    await this.sleep(500);
-    return { success: true, data: result };
+  }
+
+  private async executeKey(tab: Tab, params: { key: string; modifiers?: Array<'control' | 'shift' | 'alt' | 'meta'> }): Promise<ActionResult> {
+    await this.nativeKey(tab, params.key, params.modifiers || []);
+    await this.sleep(250);
+    return { success: true, data: { key: params.key, modifiers: params.modifiers || [] } };
   }
 
   private async executeScroll(tab: Tab, params: { direction: string; amount?: number; selector?: string }): Promise<ActionResult> {
@@ -270,6 +325,24 @@ export class ActionExecutor {
       wc.sendInputEvent({ type: 'char', keyCode: char });
       await this.sleep(10);
     }
+  }
+
+  async nativeKey(tab: Tab, key: string, modifiers: Array<'control' | 'shift' | 'alt' | 'meta'>): Promise<void> {
+    const wc = tab.nativeWebContents;
+    if (!wc) throw new Error("No webContents available");
+
+    const normalizedModifiers = modifiers.map(modifier => {
+      switch (modifier) {
+        case "control": return "control";
+        case "shift": return "shift";
+        case "alt": return "alt";
+        case "meta": return "meta";
+      }
+    });
+
+    wc.sendInputEvent({ type: 'keyDown', keyCode: key, modifiers: normalizedModifiers });
+    await this.sleep(40);
+    wc.sendInputEvent({ type: 'keyUp', keyCode: key, modifiers: normalizedModifiers });
   }
 
   private sleep(ms: number): Promise<void> {

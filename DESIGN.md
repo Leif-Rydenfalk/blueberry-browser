@@ -1,170 +1,319 @@
-## 📘 Blueberry Browser — AI Coding Standards
+# Blueberry Browser — Design System
 
-### 1. Philosophy
-- **Minimal, clean, purposeful.** Every line must justify its existence.
-- **Glassmorphism + blueberry palette.** No exceptions.
-- **macOS-first, cross-platform.** Always check `window.topBarAPI.platform` (not `process.platform` in renderer).
-- **Emoji brand identity.** 🫐 is the logo. No sparkles, no stars, no generic icons.
+> Minimal. Purposeful. Blueberry-blue.
 
 ---
 
-### 2. Design System (LOCKED)
-
-**Colors** — use CSS variables only, never hardcode:
-```css
-/* Light */
---primary: 59 91 219;        /* Blueberry blue */
---background: 250 252 255;   /* Cool white */
---foreground: 15 23 42;      /* Slate 900 */
---muted-foreground: 100 116 139;
---border: 226 232 240;
-
-/* Dark */
---primary: 99 130 255;       /* Lighter blue */
---background: 10 14 26;      /* Deep navy */
---foreground: 248 250 252;
---muted-foreground: 148 163 184;
---border: 51 65 85;
-```
-
-**Glassmorphism** — use these exact utility classes:
-```css
-.glass {
-    background: rgba(250, 252, 255, 0.72);
-    backdrop-filter: blur(20px) saturate(1.6);
-    -webkit-backdrop-filter: blur(20px) saturate(1.6);
-    border-bottom: 1px solid rgba(226, 232, 240, 0.6);
-}
-.dark .glass {
-    background: rgba(10, 14, 26, 0.72);
-    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
-}
-```
-
-**Border radius scale:**
-- Pills/inputs: `rounded-full` or `rounded-xl` (12px)
-- Cards: `rounded-2xl` (16px)
-- Buttons: `rounded-lg` (8px) or `rounded-xl`
-
-**Shadows:**
-- Subtle: `shadow-[0_1px_3px_rgba(0,0,0,0.04)]`
-- Elevated: `shadow-lg` or `shadow-[0_8px_16px_rgba(0,0,0,0.08)]`
-
----
-
-### 3. Component Rules
-
-**React components:**
-- Use functional components with explicit return types: `React.FC`
-- Props interface always named `[ComponentName]Props`
-- One component per file, named export
-- No `default` exports — always named
-
-**ClassName composition:**
-- Always use `cn()` from `@common/lib/utils`
-- Order: layout → spacing → sizing → colors → effects → interactive → dark variants
-- Example:
-```tsx
-className={cn(
-    "flex items-center gap-2 px-3 py-1.5",  // layout/spacing
-    "h-8 rounded-full",                      // sizing/shape
-    "bg-secondary/80 text-foreground",       // colors
-    "hover:bg-secondary transition-all",     // interactive
-    "dark:bg-secondary/40"                   // dark
-)}
-```
-
-**No inline styles.** Ever. Use Tailwind or CSS variables.
-
----
-
-### 4. Platform Awareness
-
-**NEVER use `process.platform` in renderer code.** It returns `undefined`.
-
-**ALWAYS use the exposed platform:**
-```tsx
-const isMac = window.topBarAPI?.platform === 'darwin'
-const isWin = window.topBarAPI?.platform === 'win32'
-const isLinux = window.topBarAPI?.platform === 'linux'
-```
-
-**macOS traffic lights:**
-- Only render `pl-[88px]` spacing when `isMac`
-- On Linux/Windows, show 🫐 logo instead
-
----
-
-### 5. Brand Identity (NON-NEGOTIABLE)
+## 1. Brand
 
 | Element | Value |
 |---------|-------|
-| Logo | 🫐 (blueberry emoji) |
+| Logo | 🫐 (blueberry emoji, no substitutes) |
 | App name | Blueberry Browser |
 | AI name | Blueberry AI |
 | Loading indicator | 🫐 with `animate-pulse` |
-| Empty state icon | Large 🫐 (text-5xl or bigger) |
-| **Forbidden icons** | Sparkles, stars, magic wands, robots, brains |
+| Empty states | Large 🫐 (`text-4xl` or bigger) + short copy |
+| **Forbidden icons** | Sparkles ✨, stars ⭐, magic wands, robots 🤖, brains 🧠 |
+
+The 🫐 is the identity. Use it consistently and sparingly — it lands harder when it isn't everywhere.
 
 ---
 
-### 6. File Structure
+## 2. Color System
+
+Always use CSS variables. Never hardcode a color value.
+
+```css
+/* Light mode */
+--primary: 59 91 219;            /* Blueberry blue */
+--background: 250 252 255;       /* Cool white */
+--foreground: 15 23 42;          /* Slate 900 */
+--muted-foreground: 100 116 139; /* Slate 500 */
+--border: 226 232 240;           /* Slate 200 */
+--secondary: 241 245 249;        /* Slate 100 */
+--muted: 241 245 249;
+
+/* Dark mode */
+--primary: 99 130 255;           /* Lighter blue */
+--background: 10 14 26;          /* Deep navy */
+--foreground: 248 250 252;       /* Slate 50 */
+--muted-foreground: 148 163 184; /* Slate 400 */
+--border: 51 65 85;              /* Slate 700 */
+--secondary: 30 41 59;           /* Slate 800 */
+--muted: 30 41 59;
+```
+
+### Semantic color usage
+
+| Use case | Token |
+|----------|-------|
+| Primary action, links, active state | `text-primary`, `bg-primary` |
+| Backgrounds | `bg-background` |
+| Card / panel surfaces | `bg-background/60`, `bg-secondary/30` |
+| Body text | `text-foreground` |
+| Captions, metadata, placeholders | `text-muted-foreground` |
+| Dividers | `border-border/50`, `border-border/60` |
+| Destructive (delete, error) | `text-red-500`, `bg-red-500/10` |
+| Recording / live status | `text-red-500`, `bg-red-500/5` |
+| Success | `text-green-500` |
+
+### Opacity modifiers
+
+Use opacity modifiers (`/10`, `/20`, `/50`) over fixed hex values to keep surfaces adaptive to dark mode. Example: `bg-primary/10` instead of `bg-[#3b5bdb1a]`.
+
+---
+
+## 3. Glassmorphism
+
+Apply to overlays, panels docked to window chrome, and floating surfaces. Do not apply to simple cards in a list.
+
+```css
+.glass {
+  background: rgba(250, 252, 255, 0.72);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+}
+.dark .glass {
+  background: rgba(10, 14, 26, 0.72);
+  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+```
+
+In Tailwind: `backdrop-blur-xl backdrop-saturate-150 bg-background/70`.
+
+---
+
+## 4. Spacing & Shape
+
+**Base unit:** 4px (Tailwind default). All spacing is a multiple of 4.
+
+### Border radius scale
+
+| Context | Class | px |
+|---------|-------|----|
+| Pills, tags, badges | `rounded-full` | — |
+| Inputs, text areas | `rounded-xl` | 12 |
+| Cards, panels, list items | `rounded-2xl` | 16 |
+| Buttons (primary) | `rounded-xl` | 12 |
+| Buttons (ghost/icon) | `rounded-lg` | 8 |
+| Small chips (model selector) | `rounded-md` | 6 |
+
+Err on the side of more rounded. Flat corners feel out of place.
+
+### Shadows
+
+| Level | Class |
+|-------|-------|
+| Subtle (hover lift) | `shadow-[0_1px_3px_rgba(0,0,0,0.04)]` |
+| Card | `shadow-sm` |
+| Elevated modal / popover | `shadow-lg` |
+
+---
+
+## 5. Typography
+
+No custom fonts — the system font stack is intentional.
+
+| Use | Class |
+|-----|-------|
+| Section heading | `text-sm font-semibold` |
+| Body / message text | `text-sm` |
+| Metadata, timestamps, captions | `text-xs text-muted-foreground` |
+| Code inline | `font-mono text-xs bg-secondary px-1.5 py-0.5 rounded-md` |
+
+Keep copy short. Sidebar real estate is tight.
+
+---
+
+## 6. Interactive Elements
+
+Every interactive element needs:
+- `cursor-pointer`
+- `app-region-no-drag` (where drag regions overlap)
+- A visible focus state (use `focus:border-primary/40 focus:ring-1 focus:ring-primary/20`)
+- A hover transition: `transition-colors` or `transition-all` at `150ms`
+
+```tsx
+// Standard ghost button pattern
+className={cn(
+  "flex items-center gap-1.5 px-3 py-1.5",
+  "rounded-xl text-xs font-medium",
+  "hover:bg-muted text-muted-foreground hover:text-foreground",
+  "transition-colors cursor-pointer"
+)}
+```
+
+```tsx
+// Primary action button
+className={cn(
+  "flex items-center gap-1.5 px-3 py-2",
+  "rounded-xl text-xs font-medium",
+  "bg-primary text-primary-foreground",
+  "hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed",
+  "transition-opacity"
+)}
+```
+
+```tsx
+// Destructive / warning tint (e.g. recording, delete)
+className={cn(
+  "flex items-center gap-1.5 px-3 py-1.5",
+  "rounded-xl text-xs font-medium",
+  "bg-red-500/10 text-red-500 hover:bg-red-500/20",
+  "border border-red-500/20 transition-colors"
+)}
+```
+
+---
+
+## 7. Status Indicators
+
+| State | Visual |
+|-------|--------|
+| Loading / thinking | `🫐 animate-pulse` or `Loader2 animate-spin text-primary` |
+| Live / recording | `size-2 rounded-full bg-red-500 animate-pulse` |
+| Agent working | Pulsing dot `● text-primary animate-pulse` |
+| Step success | `CheckCircle2 text-green-500` |
+| Step error | `XCircle text-red-500` |
+| Step running | `Loader2 text-primary animate-spin` |
+| Step pending | Hollow dot `border-2 border-muted-foreground/30` |
+
+---
+
+## 8. Panel Layout Patterns
+
+### Sidebar panel structure
+
+Every sidebar panel follows this skeleton:
 
 ```
-src/
-  main/           # Electron main process — Node APIs allowed
-  preload/        # Bridge scripts — only place process.platform is valid
-  renderer/
-    common/       # Shared components, hooks, utils
-    topbar/       # TopBar React app
-    sidebar/      # Sidebar React app
+┌─ Header (px-4 py-3, border-b) ──────────────────────────────┐
+│  Icon + title                     [action buttons]           │
+├─ Sub-bar (optional, px-4 py-1.5) ───────────────────────────┤
+│  Progress bar, recording state, model selector               │
+├─ Scrollable content (flex-1 overflow-y-auto px-3 py-3) ─────┤
+│  Cards / messages / list items                               │
+└─ Footer input (p-3, border-t) ──────────────────────────────┘
 ```
 
-**Import aliases:**
-- `@common/*` → `src/renderer/common/*`
-- `@renderer/*` → `src/renderer/src/*`
+### Card pattern (workflow / result cards)
+
+```tsx
+<div className={cn(
+  "rounded-2xl border border-border/50 bg-background/60",
+  "hover:border-border hover:bg-background",
+  "transition-all p-3 space-y-2"
+)}>
+```
+
+### Inline input pattern (annotation, rename)
+
+```tsx
+<input className={cn(
+  "text-xs rounded-lg bg-background",
+  "border border-border/50 px-2 py-1.5",
+  "outline-none focus:border-primary/40"
+)} />
+```
+
+### Bottom sheet / modal
+
+Used for confirmations and run-workflow goal override. Slides up from the bottom of the sidebar panel:
+
+```
+┌──────────────────────────────┐
+│  backdrop (bg-black/40       │
+│  backdrop-blur-sm)           │
+│  ┌────────────────────────┐  │
+│  │ rounded-2xl bg-        │  │
+│  │ background border p-4  │  │
+│  │ space-y-3              │  │
+│  └────────────────────────┘  │
+└──────────────────────────────┘
+```
 
 ---
 
-### 7. IPC Patterns
+## 9. Tab Switcher
 
-**Preload exposes APIs only.** Renderer never calls `ipcRenderer` directly.
+The sidebar top-level tab switcher (Agent | Workflows):
 
-**Naming convention:**
-- `handle` for invoke: `ipcMain.handle("create-tab", ...)`
-- `on` for events: `ipcMain.on("dark-mode-changed", ...)`
-- Channel names: kebab-case, descriptive
+```tsx
+<div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-border/50">
+  <button className={cn(
+    "flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors",
+    isActive
+      ? "bg-primary/10 text-primary"
+      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+  )}>
+    Tab label
+  </button>
+</div>
+```
 
----
-
-### 8. TypeScript Rules
-
-- Strict mode. No `any` without comment justification.
-- Preload `.d.ts` must stay in sync with actual preload API.
-- Use `CoreMessage` from `ai` package, don't reinvent.
-
----
-
-### 9. State & Logic
-
-**Main process:** owns truth (tabs, windows, sessions).
-**Renderer:** reflects truth, requests changes via IPC.
-**No renderer-to-renderer direct communication.** Always through main.
+Active state: `bg-primary/10 text-primary`. No underline, no border — the filled background is enough.
 
 ---
 
-### 10. New Features Checklist
+## 10. Markdown Rendering
 
-Before submitting any new feature code, verify:
+Agent replies render as markdown using `prose-sm dark:prose-invert`. Key overrides:
 
-- [ ] 🫐 used correctly, no sparkles
-- [ ] `window.topBarAPI.platform` used for OS checks
+```tsx
+className="prose prose-sm dark:prose-invert max-w-none
+  prose-headings:text-foreground prose-p:text-foreground
+  prose-strong:text-foreground
+  prose-a:text-primary hover:prose-a:underline
+  prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5
+  prose-code:rounded-md prose-code:text-xs prose-code:font-mono
+  prose-pre:bg-secondary dark:prose-pre:bg-secondary/50
+  prose-pre:p-3 prose-pre:rounded-xl prose-pre:text-xs"
+```
+
+---
+
+## 11. Platform Awareness
+
+**Never use `process.platform` in renderer code.** It returns `undefined`.
+
+```tsx
+// Correct
+const isMac = window.topBarAPI?.platform === 'darwin'
+const isLinux = window.topBarAPI?.platform === 'linux'
+
+// Correct: macOS traffic light spacer
+{isMac && <div className="pl-[88px]" />}
+// On Linux/Windows show 🫐 logo instead
+```
+
+---
+
+## 12. Dark Mode
+
+- Every color must have a dark variant or use tokens that auto-adapt.
+- Toggle via `document.documentElement.classList.toggle('dark', isDarkMode)`.
+- Test both modes before marking anything done.
+- Prefer token-based colors (`bg-background`, `text-foreground`) over explicit `dark:` overrides when possible.
+
+---
+
+## 13. Checklist (new feature)
+
+Before shipping any UI:
+
+- [ ] 🫐 used correctly — no sparkles or stars
+- [ ] All colors via CSS variables or Tailwind tokens
 - [ ] `cn()` used for all className composition
-- [ ] CSS variables used, no hardcoded colors
-- [ ] Glassmorphism applied where appropriate
-- [ ] Dark mode variants present
-- [ ] Component has explicit `React.FC` return type
-- [ ] Named export, not default
-- [ ] Preload types updated if API changed
-- [ ] No `process.platform` in renderer
+- [ ] Glassmorphism applied where appropriate (overlays, docked surfaces)
+- [ ] Dark mode variants present and tested
+- [ ] Hover + focus states on all interactive elements
+- [ ] `cursor-pointer` on all clickable elements
+- [ ] Explicit `React.FC` return type, named export
+- [ ] `window.topBarAPI.platform` used for OS checks (not `process.platform`)
+- [ ] Loading and empty states designed
+- [ ] No inline styles
 
+---
+
+*Last updated: 2026-05-19*

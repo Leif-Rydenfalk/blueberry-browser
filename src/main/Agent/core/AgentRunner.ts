@@ -51,6 +51,9 @@ export class AgentRunner {
 
     try {
       let consecutiveErrors = 0;
+      let repeatedActionCount = 0;
+      let previousActionSignature = "";
+      let finished = false;
       const startTime = Date.now();
       let stepNum = 0;
       while (stepNum < this.config.maxSteps) {
@@ -59,6 +62,7 @@ export class AgentRunner {
         // Check max duration
         if (this.config.maxDurationMs && Date.now() - startTime > this.config.maxDurationMs) {
           console.log("[AgentRunner] Max duration reached, finishing");
+          finished = true;
           this.emitUpdate({
             step: stepNum,
             totalSteps: this.config.maxSteps,
@@ -85,9 +89,15 @@ export class AgentRunner {
           await this.sleep(200);
         }
 
+        const elapsedMs = Date.now() - startTime;
         const context = {
           ...await this.strategy.getActiveContext(goal, this.steps),
           memory: this.buildWorkingMemory(),
+          profile: this.config.taskProfile,
+          loopMode: this.config.loopMode,
+          stepBudget: this.config.maxSteps,
+          elapsedMs,
+          remainingMs: this.config.maxDurationMs ? Math.max(0, this.config.maxDurationMs - elapsedMs) : undefined,
         };
 
         this.emitUpdate({
@@ -116,6 +126,13 @@ export class AgentRunner {
         if (!action) {
           console.error("[AgentRunner] Failed to parse action from:", responseText);
           throw new Error("Failed to parse valid action from LLM response");
+        }
+        const actionSignature = this.getActionSignature(action);
+        repeatedActionCount = actionSignature === previousActionSignature ? repeatedActionCount + 1 : 1;
+        previousActionSignature = actionSignature;
+
+        if (this.config.loopMode && repeatedActionCount >= 10) {
+          this.remember(`Repeated ${action.type} ${repeatedActionCount} times; inspect the current page and vary the approach if progress stalls.`);
         }
 
         this.emitUpdate({
@@ -151,14 +168,18 @@ export class AgentRunner {
 
         if (action.type === "finish") {
           console.log("[AgentRunner] Task completed");
+          finished = true;
           break;
         }
 
-        // Force finish if stuck in error loop
+        // Force finish if stuck in an error loop. Long-running tasks get more room
+        // to recover because social feeds and inboxes often have transient failures.
         if (!result.success) {
           consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
+          const errorLimit = this.config.loopMode ? 8 : 3;
+          if (!result.recoverable || consecutiveErrors >= errorLimit) {
             console.log("[AgentRunner] Too many errors, forcing finish");
+            finished = true;
             this.emitUpdate({
               step: stepNum,
               totalSteps: this.config.maxSteps,
@@ -172,7 +193,21 @@ export class AgentRunner {
           consecutiveErrors = 0;
         }
 
-        await this.sleep(500);
+        await this.sleep(this.config.targetPaceMs ?? 500);
+      }
+
+      if (!finished && !this.abortController.signal.aborted) {
+        this.emitUpdate({
+          step: this.config.maxSteps,
+          totalSteps: this.config.maxSteps,
+          action: {
+            type: "finish",
+            params: { answer: `Reached the step budget for this run after ${this.config.maxSteps} steps. I kept the task moving until the configured limit.` },
+            reasoning: "Step budget reached",
+          },
+          status: "success",
+          sessionId: "",
+        });
       }
 
       this.onComplete?.(this.steps);
@@ -269,7 +304,7 @@ export class AgentRunner {
       return;
     }
 
-    if (action.type === "click" || action.type === "type" || action.type === "scroll") {
+    if (action.type === "click" || action.type === "type" || action.type === "scroll" || action.type === "key") {
       this.remember(`${action.type} succeeded: ${this.compact(action.params, 180)}`);
     }
   }
@@ -295,6 +330,10 @@ export class AgentRunner {
     const text = typeof value === "string" ? value : JSON.stringify(value);
     if (!text) return "";
     return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+  }
+
+  private getActionSignature(action: AgentAction): string {
+    return `${action.type}:${this.compact(action.params, 120)}`;
   }
 
   private sleep(ms: number): Promise<void> {

@@ -2,6 +2,7 @@ export type ActionType =
   | 'navigate'
   | 'click'
   | 'type'
+  | 'key'
   | 'scroll'
   | 'wait'
   | 'extract'
@@ -9,18 +10,21 @@ export type ActionType =
   | 'finish';
 
 export interface NavigateParams { readonly url: string; }
-export interface ClickParams { readonly selector: string; readonly x?: number; readonly y?: number; }
-export interface TypeParams { readonly selector: string; readonly text: string; readonly clearFirst?: boolean; }
+export interface ClickParams { readonly selector?: string; readonly x?: number; readonly y?: number; }
+export interface TypeParams { readonly selector?: string; readonly text: string; readonly clearFirst?: boolean; readonly x?: number; readonly y?: number; }
+export interface KeyParams { readonly key: string; readonly modifiers?: ReadonlyArray<'control' | 'shift' | 'alt' | 'meta'>; }
 export interface ScrollParams { readonly direction: 'up' | 'down' | 'to-element'; readonly amount?: number; readonly selector?: string; }
 export interface WaitParams { readonly duration?: number; readonly condition?: 'navigation' | 'networkidle' | 'selector'; readonly selector?: string; }
 export interface ExtractParams { readonly selector: string; readonly attribute?: 'text' | 'html' | 'value'; readonly name: string; }
 export interface ScreenshotParams { }
 export interface FinishParams { readonly answer?: string; }
+export type AgentTaskProfile = 'quick' | 'repetitive' | 'communication' | 'research';
 
 export type ActionParamsMap = {
   navigate: NavigateParams;
   click: ClickParams;
   type: TypeParams;
+  key: KeyParams;
   scroll: ScrollParams;
   wait: WaitParams;
   extract: ExtractParams;
@@ -52,6 +56,11 @@ export interface AgentContext {
   readonly currentUrl: string | null;
   readonly pageText: string | null;
   readonly screenshot: string | null;
+  readonly profile?: AgentTaskProfile;
+  readonly loopMode?: boolean;
+  readonly stepBudget?: number;
+  readonly elapsedMs?: number;
+  readonly remainingMs?: number;
 }
 
 export interface AgentConfig {
@@ -61,6 +70,8 @@ export interface AgentConfig {
   readonly strategy: 'single-tab' | 'multi-tab';
   readonly maxDurationMs?: number;  // Max total time for long tasks
   readonly loopMode?: boolean;  // Allow repeating patterns
+  readonly taskProfile?: AgentTaskProfile;
+  readonly targetPaceMs?: number;
 }
 
 export interface AgentSession {
@@ -101,4 +112,3 @@ export interface AgentSessionRequest {
   };
   readonly mode: 'single-tab' | 'multi-tab';
 }
-

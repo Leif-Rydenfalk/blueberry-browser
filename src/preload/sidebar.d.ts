@@ -49,6 +49,32 @@ interface ModelOption {
   readonly label: string;
 }
 
+interface RecordingState {
+  readonly isRecording: boolean;
+  readonly startedAt: number | null;
+  readonly stepCount: number;
+  readonly currentUrl: string | null;
+}
+
+interface WorkflowStep {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly url: string;
+  readonly pageTitle: string;
+  readonly data: { readonly type: string; readonly payload: Record<string, unknown> };
+}
+
+interface WorkflowSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly createdAt: number;
+  readonly duration: number;
+  readonly stepCount: number;
+  readonly startUrl: string;
+  readonly endUrl: string;
+}
+
 interface ModelSelection extends ModelOption {
   readonly configured: boolean;
 }
@@ -81,6 +107,21 @@ interface SidebarAPI {
   getAgentStatus: () => Promise<{ isRunning: boolean; activeSession: string | null }>;
   onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => void;
   removeAgentUpdateListener: () => void;
+  // Workflow
+  startWorkflowRecording: () => Promise<RecordingState>;
+  stopWorkflowRecording: (name: string) => Promise<WorkflowSummary | null>;
+  cancelWorkflowRecording: () => Promise<void>;
+  addWorkflowAnnotation: (text: string) => Promise<boolean>;
+  getWorkflowRecordingState: () => Promise<RecordingState>;
+  getAllWorkflows: () => Promise<WorkflowSummary[]>;
+  getWorkflow: (id: string) => Promise<unknown>;
+  deleteWorkflow: (id: string) => Promise<boolean>;
+  renameWorkflow: (id: string, name: string) => Promise<boolean>;
+  executeWorkflow: (id: string, goalOverride?: string) => Promise<{ sessionId: string; status: string } | { error: string }>;
+  onWorkflowRecordingUpdate: (callback: (state: RecordingState) => void) => void;
+  removeWorkflowRecordingUpdateListener: () => void;
+  onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => void;
+  removeWorkflowStepCapturedListener: () => void;
 }
 
 declare global {

@@ -1,16 +1,25 @@
 import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
 import { AgentIpcHandler } from "./Agent/core/AgentIpcHandler";
+import { WorkflowIpcHandler } from "./Workflow/WorkflowIpcHandler";
+import { WORKFLOW_CHANNELS } from "./Workflow/WorkflowTypes";
 
 export class EventManager {
   private mainWindow: Window;
   private agentHandler: AgentIpcHandler;
+  private workflowHandler: WorkflowIpcHandler;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
     this.agentHandler = new AgentIpcHandler(mainWindow);
+    this.workflowHandler = new WorkflowIpcHandler(mainWindow);
     this.setupEventHandlers();
     this.setupAgentHandlers();
+    this.setupWorkflowHandlers();
+  }
+
+  getWorkflowHandler(): WorkflowIpcHandler {
+    return this.workflowHandler;
   }
 
   private setupEventHandlers(): void {
@@ -42,6 +51,62 @@ export class EventManager {
     // Broadcasts agent updates to sidebar UI
     this.agentHandler.onUpdate((update) => {
       this.mainWindow.sidebar.view.webContents.send("agent:stream-update", update);
+    });
+  }
+
+  private setupWorkflowHandlers(): void {
+    // Push recording state changes to sidebar
+    this.workflowHandler.setOnUpdate((state) => {
+      this.mainWindow.sidebar.view.webContents.send(WORKFLOW_CHANNELS.RECORDING_UPDATE, state);
+    });
+    this.workflowHandler.setOnStepCaptured((step) => {
+      this.mainWindow.sidebar.view.webContents.send(WORKFLOW_CHANNELS.STEP_CAPTURED, step);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.START_RECORDING, () => {
+      return this.workflowHandler.startRecording();
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.STOP_RECORDING, async (_, name: string) => {
+      return await this.workflowHandler.stopRecording(name);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.CANCEL_RECORDING, () => {
+      this.workflowHandler.cancelRecording();
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.ADD_ANNOTATION, (_, text: string) => {
+      return this.workflowHandler.addAnnotation(text);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.GET_RECORDING_STATE, () => {
+      return this.workflowHandler.getRecordingState();
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.GET_ALL, () => {
+      return this.workflowHandler.getAllWorkflows();
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.GET_ONE, (_, id: string) => {
+      return this.workflowHandler.getWorkflow(id);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.DELETE, (_, id: string) => {
+      return this.workflowHandler.deleteWorkflow(id);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.RENAME, (_, id: string, name: string) => {
+      return this.workflowHandler.renameWorkflow(id, name);
+    });
+
+    ipcMain.handle(WORKFLOW_CHANNELS.EXECUTE, async (_, id: string, goalOverride?: string) => {
+      const prompt = this.workflowHandler.buildAgentPrompt(id, goalOverride);
+      if (!prompt) return { error: 'Workflow not found' };
+      const result = await this.agentHandler.start({
+        goal: prompt,
+        mode: 'single-tab',
+      });
+      return result;
     });
   }
 

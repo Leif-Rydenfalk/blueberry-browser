@@ -50,6 +50,21 @@ interface ModelOption {
   readonly label: string;
 }
 
+interface RecordingState {
+  readonly isRecording: boolean;
+  readonly startedAt: number | null;
+  readonly stepCount: number;
+  readonly currentUrl: string | null;
+}
+
+interface WorkflowStep {
+  readonly id: string;
+  readonly timestamp: number;
+  readonly url: string;
+  readonly pageTitle: string;
+  readonly data: { readonly type: string; readonly payload: Record<string, unknown> };
+}
+
 interface ModelSelection extends ModelOption {
   readonly configured: boolean;
 }
@@ -112,6 +127,53 @@ const sidebarAPI = {
 
   removeAgentUpdateListener: () => {
     electronAPI.ipcRenderer.removeAllListeners("agent:stream-update");
+  },
+
+  // Workflow functionality
+  startWorkflowRecording: () =>
+    electronAPI.ipcRenderer.invoke("workflow:start-recording"),
+
+  stopWorkflowRecording: (name: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:stop-recording", name),
+
+  cancelWorkflowRecording: () =>
+    electronAPI.ipcRenderer.invoke("workflow:cancel-recording"),
+
+  addWorkflowAnnotation: (text: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:add-annotation", text),
+
+  getWorkflowRecordingState: () =>
+    electronAPI.ipcRenderer.invoke("workflow:get-recording-state"),
+
+  getAllWorkflows: () =>
+    electronAPI.ipcRenderer.invoke("workflow:get-all"),
+
+  getWorkflow: (id: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:get-one", id),
+
+  deleteWorkflow: (id: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:delete", id),
+
+  renameWorkflow: (id: string, name: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:rename", id, name),
+
+  executeWorkflow: (id: string, goalOverride?: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:execute", id, goalOverride),
+
+  onWorkflowRecordingUpdate: (callback: (state: RecordingState) => void) => {
+    electronAPI.ipcRenderer.on("workflow:recording-update", (_, state) => callback(state));
+  },
+
+  removeWorkflowRecordingUpdateListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("workflow:recording-update");
+  },
+
+  onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => {
+    electronAPI.ipcRenderer.on("workflow:step-captured", (_, step) => callback(step));
+  },
+
+  removeWorkflowStepCapturedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("workflow:step-captured");
   },
 };
 

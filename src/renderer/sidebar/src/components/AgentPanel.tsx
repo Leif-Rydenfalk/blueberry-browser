@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { useAgent } from '../contexts/AgentContext'
 import type { AgentStep } from '../contexts/AgentContext'
-import { Square, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePointer, Type, ScrollText, Camera, Navigation, Search, Flag, Send, Bot, User } from 'lucide-react'
+import { Square, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePointer, Type, Keyboard, ScrollText, Camera, Navigation, Search, Flag, Send, Bot, User } from 'lucide-react'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
 
@@ -23,6 +23,7 @@ const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
     case 'navigate': return <Navigation className="size-3" />
     case 'click': return <MousePointer className="size-3" />
     case 'type': return <Type className="size-3" />
+    case 'key': return <Keyboard className="size-3" />
     case 'scroll': return <ScrollText className="size-3" />
     case 'screenshot': return <Camera className="size-3" />
     case 'extract': return <Search className="size-3" />
@@ -56,6 +57,7 @@ const getActionSummary = (step: AgentStep) => {
     case 'navigate': return `Navigate to ${(step.action.params as any).url || 'page'}`
     case 'click': return `Click ${(step.action.params as any).selector || 'coordinates'}`
     case 'type': return `Type "${(step.action.params as any).text || ''}"`
+    case 'key': return `Key ${(step.action.params as any).key || ''}`
     case 'scroll': return `Scroll ${(step.action.params as any).direction || ''}`
     case 'extract': return `Extract ${(step.action.params as any).name || 'data'}`
     case 'screenshot': return 'Screenshot'
