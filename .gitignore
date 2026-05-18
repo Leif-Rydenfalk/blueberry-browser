@@ -136,3 +136,4 @@ logs/
 *.cert
 
 node_modules/
+trash/
