@@ -110,7 +110,7 @@ export const AddressBar: React.FC = () => {
           onSubmit={handleSubmit}
           className="flex-1 min-w-0 max-w-full app-region-no-drag"
         >
-          <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg ring-1 ring-primary/20 p-1">
+          <div className="bg-background rounded-xl shadow-md ring-1 ring-primary/20 p-1">
             <input
               type="text"
               value={url}

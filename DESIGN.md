@@ -25,22 +25,36 @@ Always use CSS variables. Never hardcode a color value.
 
 ```css
 /* Light mode */
---primary: 59 91 219;            /* Blueberry blue */
---background: 250 252 255;       /* Cool white */
---foreground: 15 23 42;          /* Slate 900 */
---muted-foreground: 100 116 139; /* Slate 500 */
---border: 226 232 240;           /* Slate 200 */
---secondary: 241 245 249;        /* Slate 100 */
---muted: 241 245 249;
+--background: 255 255 255;       /* Pure white */
+--foreground: 10 10 10;          /* Near-black */
+--card: 250 250 250;             /* Neutral 50 */
+--primary: 79 70 229;            /* Indigo-600 — blueberry */
+--primary-foreground: 255 255 255;
+--secondary: 245 245 245;        /* Neutral 100 */
+--secondary-foreground: 64 64 64;
+--muted: 245 245 245;
+--muted-foreground: 115 115 115; /* Neutral 500 */
+--accent: 238 240 255;           /* Soft indigo tint */
+--accent-foreground: 55 48 163;  /* Indigo 800 */
+--border: 229 229 229;           /* Neutral 200 */
+--input: 229 229 229;
+--ring: 79 70 229;
 
 /* Dark mode */
---primary: 99 130 255;           /* Lighter blue */
---background: 10 14 26;          /* Deep navy */
---foreground: 248 250 252;       /* Slate 50 */
---muted-foreground: 148 163 184; /* Slate 400 */
---border: 51 65 85;              /* Slate 700 */
---secondary: 30 41 59;           /* Slate 800 */
---muted: 30 41 59;
+--background: 10 10 10;          /* Near-black */
+--foreground: 245 245 245;       /* Neutral 100 */
+--card: 18 18 18;
+--primary: 129 140 248;          /* Indigo-400 */
+--primary-foreground: 255 255 255;
+--secondary: 26 26 26;
+--secondary-foreground: 212 212 212;
+--muted: 26 26 26;
+--muted-foreground: 163 163 163; /* Neutral 400 */
+--accent: 30 27 75;
+--accent-foreground: 199 210 254; /* Indigo 200 */
+--border: 38 38 38;              /* Neutral 800 */
+--input: 38 38 38;
+--ring: 129 140 248;
 ```
 
 ### Semantic color usage
@@ -69,14 +83,14 @@ Apply to overlays, panels docked to window chrome, and floating surfaces. Do not
 
 ```css
 .glass {
-  background: rgba(250, 252, 255, 0.72);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
-  border-bottom: 1px solid rgba(226, 232, 240, 0.6);
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid rgba(229, 229, 229, 0.7);
 }
 .dark .glass {
-  background: rgba(10, 14, 26, 0.72);
-  border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+  background: rgba(10, 10, 10, 0.85);
+  border-bottom: 1px solid rgba(38, 38, 38, 0.8);
 }
 ```
 

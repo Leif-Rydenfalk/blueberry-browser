@@ -30,7 +30,7 @@ const TabItem: React.FC<TabItemProps> = ({
           "relative flex items-center h-7 pl-2.5 pr-1.5 select-none rounded-lg gap-2",
           "text-sm transition-all duration-200 cursor-pointer app-region-no-drag",
           isActive
-            ? "bg-white dark:bg-slate-700 shadow-sm text-foreground font-medium ring-1 ring-border/60 dark:ring-border/30"
+            ? "bg-background shadow-sm text-foreground font-medium ring-1 ring-border/50"
             : "bg-transparent hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-muted-foreground",
         )}
         onClick={() => !isActive && onActivate()}
