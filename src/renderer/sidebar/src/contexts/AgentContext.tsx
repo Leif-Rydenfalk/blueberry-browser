@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
 
+interface AgentMessage {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  timestamp: number
+}
+
 interface AgentStep {
   id: string
   step: number
@@ -21,6 +28,7 @@ interface AgentStep {
 
 interface AgentContextType {
   steps: AgentStep[]
+  messages: AgentMessage[]
   isRunning: boolean
   currentStep: number
   maxSteps: number
@@ -44,6 +52,7 @@ export const useAgent = () => {
 
 export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [steps, setSteps] = useState<AgentStep[]>([])
+  const [messages, setMessages] = useState<AgentMessage[]>([])
   const [isRunning, setIsRunning] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
   const [maxSteps, setMaxSteps] = useState(15)
@@ -51,6 +60,14 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [sessionId, setSessionId] = useState<string | null>(null)
 
   const startAgent = useCallback(async (agentGoal: string) => {
+    // Add user message
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'user',
+      content: agentGoal,
+      timestamp: Date.now()
+    }])
+
     setGoal(agentGoal)
     setIsRunning(true)
     setSteps([])
@@ -117,12 +134,33 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           updated[existingIndex] = newStep
           return updated
         } else {
+          // Also add as a message so it persists in chat history
+          if (data.status === 'success' || data.status === 'error') {
+            const stepContent = data.action.type === 'finish'
+              ? data.action.params?.answer || 'Task completed'
+              : `**Step ${data.step}/${data.totalSteps}:** ${data.action.type} — ${data.action.reasoning}`
+
+            setMessages(m => [...m, {
+              id: `step-${data.sessionId}-${data.step}`,
+              role: 'assistant',
+              content: stepContent,
+              timestamp: Date.now()
+            }])
+          }
           return [...prev, newStep]
         }
       })
 
       if (data.status === 'success' && data.action.type === 'finish') {
         setIsRunning(false)
+        // Add assistant message with the answer
+        const answer = data.action.params?.answer || "Task completed"
+        setMessages(prev => [...prev, {
+          id: `finish-${Date.now()}`,
+          role: 'assistant',
+          content: answer,
+          timestamp: Date.now()
+        }])
       }
     }
 
@@ -135,6 +173,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const value: AgentContextType = {
     steps,
+    messages,
     isRunning,
     currentStep,
     maxSteps,

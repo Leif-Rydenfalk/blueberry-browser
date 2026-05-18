@@ -70,6 +70,10 @@ export class Tab {
     return this.webContentsView;
   }
 
+  get nativeWebContents() {
+    return this.webContentsView.webContents;
+  }
+
   // Public methods
   show(): void {
     this._isVisible = true;
@@ -95,6 +99,31 @@ export class Tab {
 
   async getTabText(): Promise<string> {
     return await this.runJs("return document.documentElement.innerText");
+  }
+
+  async getTextViaCDP(): Promise<string | null> {
+    try {
+      const debug = this.webContentsView.webContents.debugger;
+
+      if (!debug.isAttached()) {
+        debug.attach('1.3');
+      }
+
+      // Evaluate script via CDP - this runs in a different context
+      const { result } = await debug.sendCommand('Runtime.evaluate', {
+        expression: 'document.body.innerText',
+        returnByValue: true
+      });
+
+      if (result && result.value) {
+        return result.value.substring(0, 8000);
+      }
+
+      return null;
+    } catch (error) {
+      console.error("[Tab] CDP text extraction failed:", error);
+      return null;
+    }
   }
 
   loadURL(url: string): Promise<void> {

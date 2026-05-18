@@ -1,24 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import { useAgent } from '../contexts/AgentContext'
-import { useChat } from '../contexts/ChatContext'
-import { Play, Square, RotateCcw, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePointer, Type, ScrollText, Camera, Navigation, Search, Flag, Send, Bot, User } from 'lucide-react'
+import { Square, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePointer, Type, ScrollText, Camera, Navigation, Search, Flag, Send, Bot, User } from 'lucide-react'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
-
-interface UnifiedMessage {
-  id: string
-  role: 'user' | 'assistant' | 'agent-step'
-  content: string
-  timestamp: number
-  stepData?: {
-    step: number
-    totalSteps: number
-    action: { type: string; params: Record<string, unknown>; reasoning: string }
-    status: string
-    result?: { success: boolean; data?: unknown; error?: string }
-    screenshot?: string
-  }
-}
 
 const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
   switch (type) {
@@ -43,133 +30,40 @@ const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
   }
 }
 
-const AgentStepMessage: React.FC<{ stepData: UnifiedMessage['stepData'] }> = ({ stepData }) => {
-  const [expanded, setExpanded] = useState(false)
-  const [showScreenshot, setShowScreenshot] = useState(false)
-
-  if (!stepData) return null
-
-  const getActionSummary = () => {
-    switch (stepData.action.type) {
-      case 'navigate': return `Navigate to ${(stepData.action.params as any).url}`
-      case 'click': return `Click ${(stepData.action.params as any).selector}`
-      case 'type': return `Type "${(stepData.action.params as any).text}"`
-      case 'scroll': return `Scroll ${(stepData.action.params as any).direction}`
-      case 'extract': return `Extract ${(stepData.action.params as any).name}`
-      case 'screenshot': return 'Screenshot'
-      case 'finish': return 'Done'
-      default: return stepData.action.type
-    }
-  }
-
-  return (
-    <div className="ml-8 mt-1 mb-2">
-      <div
-        className={cn(
-          "flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs",
-          "bg-muted/30 hover:bg-muted/50 transition-colors",
-          stepData.status === 'running' && "bg-primary/5"
-        )}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <StatusIcon status={stepData.status} />
-        <ActionIcon type={stepData.action.type} />
-        <span className="font-medium">{getActionSummary()}</span>
-        <span className="text-muted-foreground ml-auto">{stepData.step}/{stepData.totalSteps}</span>
-        {expanded ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
-      </div>
-
-      {expanded && (
-        <div className="ml-4 mt-1 space-y-1 text-xs">
-          <div className="text-muted-foreground">{stepData.action.reasoning}</div>
-          {stepData.result && !stepData.result.success && (
-            <div className="text-red-500">{stepData.result.error}</div>
-          )}
-          {stepData.screenshot && (
-            <div>
-              <button onClick={() => setShowScreenshot(!showScreenshot)} className="text-primary hover:underline">
-                {showScreenshot ? 'Hide' : 'Show'} screenshot
-              </button>
-              {showScreenshot && (
-                <img src={stepData.screenshot} alt="screenshot" className="mt-1 rounded-lg border max-w-full" />
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
+const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
+  <div className="prose prose-sm dark:prose-invert max-w-none
+    prose-headings:text-foreground prose-p:text-foreground prose-strong:text-foreground
+    prose-a:text-primary hover:prose-a:underline
+    prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-xs prose-code:font-mono
+    prose-pre:bg-secondary dark:prose-pre:bg-secondary/50 prose-pre:p-3 prose-pre:rounded-xl prose-pre:text-xs">
+    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>{content}</ReactMarkdown>
+  </div>
+)
 
 export const AgentPanel: React.FC = () => {
-  const { steps, isRunning, currentStep, maxSteps, goal, startAgent, abortAgent, sendMessage, clearAgent } = useAgent()
-  const { messages: chatMessages, sendMessage: sendChatMessage } = useChat()
+  const { steps, messages, isRunning, currentStep, maxSteps, goal, startAgent, abortAgent, clearAgent } = useAgent()
   const [input, setInput] = useState('')
-  const [unifiedMessages, setUnifiedMessages] = useState<UnifiedMessage[]>([])
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
-  // Build unified message list from chat + agent steps
-  useEffect(() => {
-    const msgs: UnifiedMessage[] = []
-
-    // Add chat messages
-    chatMessages.forEach((msg, i) => {
-      msgs.push({
-        id: `chat-${i}`,
-        role: msg.role,
-        content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-        timestamp: msg.timestamp || Date.now(),
-      })
-    })
-
-    // Add agent steps as inline messages
-    steps.forEach((step) => {
-      msgs.push({
-        id: step.id,
-        role: 'agent-step',
-        content: `${step.action.type}: ${step.action.reasoning}`,
-        timestamp: step.timestamp,
-        stepData: {
-          step: step.step,
-          totalSteps: step.totalSteps,
-          action: step.action,
-          status: step.status,
-          result: step.result,
-          screenshot: step.screenshot,
-        }
-      })
-    })
-
-    msgs.sort((a, b) => a.timestamp - b.timestamp)
-    setUnifiedMessages(msgs)
-  }, [chatMessages, steps])
-
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [unifiedMessages])
+  }, [messages, steps])
+
+  const toggleStep = (stepId: string) => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev)
+      if (next.has(stepId)) next.delete(stepId)
+      else next.add(stepId)
+      return next
+    })
+  }
 
   const handleSubmit = async () => {
     if (!input.trim()) return
-
     const text = input.trim()
     setInput('')
-
-    if (isRunning) {
-      // Send to running agent
-      await sendMessage(text)
-    } else {
-      // Check if message looks like an agent task
-      const agentKeywords = ['find', 'search', 'go to', 'navigate', 'look for', 'hitta', 'sök', 'gå till']
-      const looksLikeAgentTask = agentKeywords.some(kw => text.toLowerCase().includes(kw))
-
-      if (looksLikeAgentTask) {
-        await startAgent(text)
-      } else {
-        // Regular chat
-        await sendChatMessage(text)
-      }
-    }
+    await startAgent(text)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -194,19 +88,26 @@ export const AgentPanel: React.FC = () => {
             )}
           </div>
         </div>
-        {isRunning && (
-          <Button onClick={abortAgent} variant="destructive" size="sm" className="h-7 text-xs gap-1">
-            <Square className="size-3" /> Stop
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && !isRunning && (
+            <Button onClick={clearAgent} variant="ghost" size="sm" className="h-7 text-xs gap-1">
+              <Square className="size-3" /> Clear
+            </Button>
+          )}
+          {isRunning && (
+            <Button onClick={abortAgent} variant="destructive" size="sm" className="h-7 text-xs gap-1">
+              <Square className="size-3" /> Stop
+            </Button>
+          )}
+        </div>
       </div>
 
-      {/* Progress bar when running */}
+      {/* Progress bar */}
       {isRunning && (
         <div className="px-4 py-1.5 bg-primary/5 border-b border-border/30">
           <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-muted-foreground">{goal}</span>
-            <span className="text-primary font-medium">{currentStep}/{maxSteps}</span>
+            <span className="text-muted-foreground truncate max-w-[200px]">{goal}</span>
+            <span className="text-primary font-medium">Step {currentStep} of {maxSteps}</span>
           </div>
           <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
             <div
@@ -217,36 +118,64 @@ export const AgentPanel: React.FC = () => {
         </div>
       )}
 
-      {/* Debug: Show raw steps if nothing else renders */}
-      {steps.length > 0 && unifiedMessages.length === 0 && (
-        <div className="p-4 text-xs text-red-500">
-          Steps exist but not rendered: {steps.length} steps
-        </div>
-      )}
-
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
-        {steps.length === 0 && !isRunning && unifiedMessages.length === 0 ? (
+        {messages.length === 0 ? (
           <div className="flex items-center justify-center h-full min-h-[200px]">
             <div className="text-center space-y-3">
               <div className="text-4xl">🫐</div>
               <h3 className="text-sm font-semibold">Blueberry AI</h3>
               <p className="text-muted-foreground text-xs max-w-[240px]">
-                Ask me anything, or tell me to browse the web for you.
+                Ask me anything. I'll browse the web to find answers.
               </p>
               <div className="space-y-1 text-xs text-muted-foreground/60">
-                <p>"Find the cheapest flight to London"</p>
-                <p>"Go to Reddit and find top posts"</p>
-                <p>"What's the weather in Stockholm?"</p>
+                <p>"What's the cheapest flight to London?"</p>
+                <p>"Find my important emails"</p>
+                <p>"Hi" — I'll just say hello back!</p>
               </div>
             </div>
           </div>
         ) : (
-          unifiedMessages.map((msg) => {
-            if (msg.role === 'agent-step') {
-              return <AgentStepMessage key={msg.id} stepData={msg.stepData} />
+          messages.map((msg) => {
+            // Check if this is a step message
+            const isStep = msg.id.startsWith('step-')
+            const stepNum = isStep ? parseInt(msg.content.match(/Step (\d+)/)?.[1] || '0') : 0
+            const step = isStep ? steps.find(s => s.step === stepNum) : null
+
+            if (isStep && step) {
+              const isExpanded = expandedSteps.has(step.id)
+              return (
+                <div key={msg.id} className="ml-8">
+                  <div
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs",
+                      "bg-muted/30 hover:bg-muted/50 transition-colors",
+                      step.status === 'running' && "bg-primary/5"
+                    )}
+                    onClick={() => toggleStep(step.id)}
+                  >
+                    <StatusIcon status={step.status} />
+                    <ActionIcon type={step.action.type} />
+                    <span className="font-medium">{step.action.type}</span>
+                    <span className="text-muted-foreground ml-auto">{step.step}/{step.totalSteps}</span>
+                    {isExpanded ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
+                  </div>
+                  {isExpanded && (
+                    <div className="ml-4 mt-1 space-y-1 text-xs">
+                      <div className="text-muted-foreground">{step.action.reasoning}</div>
+                      {step.result && !step.result.success && (
+                        <div className="text-red-500">{step.result.error}</div>
+                      )}
+                      {step.screenshot && (
+                        <img src={step.screenshot} alt="screenshot" className="mt-1 rounded-lg border max-w-full" />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
             }
 
+            // Regular message
             return (
               <div key={msg.id} className={cn(
                 "flex gap-2",
@@ -263,7 +192,11 @@ export const AgentPanel: React.FC = () => {
                     ? "bg-primary text-primary-foreground rounded-tr-sm"
                     : "bg-muted/50 text-foreground rounded-tl-sm"
                 )}>
-                  {msg.content}
+                  {msg.role === 'assistant' ? (
+                    <MarkdownMessage content={msg.content} />
+                  ) : (
+                    msg.content
+                  )}
                 </div>
                 {msg.role === 'user' && (
                   <div className="size-6 rounded-md bg-secondary flex items-center justify-center shrink-0 mt-1">
@@ -277,19 +210,6 @@ export const AgentPanel: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Show final answer if task completed */}
-      {steps.length > 0 && steps[steps.length - 1].action.type === 'finish' && (
-        <div className="mx-4 mb-4 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
-          <div className="flex items-center gap-2 mb-2">
-            <CheckCircle2 className="size-4 text-green-500" />
-            <span className="text-sm font-semibold text-green-700 dark:text-green-400">Task Complete</span>
-          </div>
-          <p className="text-sm text-foreground">
-            {(steps[steps.length - 1].action.params as any)?.answer || "Task finished"}
-          </p>
-        </div>
-      )}
-
       {/* Input */}
       <div className="p-3 border-t border-border/50 bg-background/80 backdrop-blur-sm">
         <div className="relative flex items-end gap-2 bg-secondary/60 dark:bg-secondary/30 rounded-2xl px-3 py-2 border border-border/40 focus-within:border-primary/30 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
@@ -297,7 +217,7 @@ export const AgentPanel: React.FC = () => {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={isRunning ? "Send a message to the agent..." : "Ask anything or tell me to browse..."}
+            placeholder={isRunning ? "Send a message..." : "Ask anything..."}
             className="flex-1 resize-none outline-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground min-h-[20px] max-h-[120px] py-1"
             rows={1}
           />
@@ -312,11 +232,6 @@ export const AgentPanel: React.FC = () => {
             <Send className="size-4" />
           </button>
         </div>
-        {isRunning && (
-          <div className="mt-1.5 text-xs text-muted-foreground text-center">
-            Agent is running. Type to send instructions or questions.
-          </div>
-        )}
       </div>
     </div>
   )

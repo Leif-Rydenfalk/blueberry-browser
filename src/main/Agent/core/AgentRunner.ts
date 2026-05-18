@@ -52,7 +52,23 @@ export class AgentRunner {
 
     try {
       let consecutiveErrors = 0;
-      for (let stepNum = 0; stepNum < this.config.maxSteps; stepNum++) {
+      const startTime = Date.now();
+      let stepNum = 0;
+      while (stepNum < this.config.maxSteps) {
+        stepNum++;
+
+        // Check max duration
+        if (this.config.maxDurationMs && Date.now() - startTime > this.config.maxDurationMs) {
+          console.log("[AgentRunner] Max duration reached, finishing");
+          this.emitUpdate({
+            step: stepNum,
+            totalSteps: this.config.maxSteps,
+            action: { type: "finish", params: { answer: `Task ran for ${this.config.maxDurationMs / 60000} minutes. Completed ${stepNum} steps.` }, reasoning: "Max duration reached" },
+            status: "success",
+            sessionId: "",
+          });
+          break;
+        }
         if (this.abortController.signal.aborted) {
           console.log("[AgentRunner] Aborted by user");
           break;

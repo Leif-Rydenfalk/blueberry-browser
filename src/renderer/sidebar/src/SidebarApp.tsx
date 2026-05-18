@@ -1,5 +1,4 @@
 import React from 'react'
-import { ChatProvider } from './contexts/ChatContext'
 import { AgentProvider } from './contexts/AgentContext'
 import { AgentPanel } from './components/AgentPanel'
 import { useDarkMode } from '@common/hooks/useDarkMode'
@@ -19,9 +18,7 @@ const SidebarContent: React.FC = () => {
 }
 
 export const SidebarApp: React.FC = () => (
-    <ChatProvider>
-        <AgentProvider>
-            <SidebarContent />
-        </AgentProvider>
-    </ChatProvider>
+    <AgentProvider>
+        <SidebarContent />
+    </AgentProvider>
 )

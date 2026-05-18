@@ -59,6 +59,8 @@ export interface AgentConfig {
   readonly model: string;
   readonly temperature: number;
   readonly strategy: 'single-tab' | 'multi-tab';
+  readonly maxDurationMs?: number;  // Max total time for long tasks
+  readonly loopMode?: boolean;  // Allow repeating patterns
 }
 
 export interface AgentSession {

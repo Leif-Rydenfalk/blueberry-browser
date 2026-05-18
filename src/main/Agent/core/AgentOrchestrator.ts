@@ -30,10 +30,12 @@ export class AgentOrchestrator {
     const sessionId = uuidv4();
 
     const config: AgentConfig = {
-      maxSteps: 15,
+      maxSteps: request.goal.toLowerCase().includes('scroll') || request.goal.toLowerCase().includes('like') ? 50 : 15,
       model: "gpt-4o-mini",
       temperature: 0.7,
       strategy: request.mode,
+      maxDurationMs: 10 * 60 * 1000, // 10 minutes max
+      loopMode: request.goal.toLowerCase().includes('scroll') || request.goal.toLowerCase().includes('while'),
     };
 
     const session: AgentSession = {

@@ -60,6 +60,18 @@ export class SingleTabStrategy implements TabStrategy {
   async getPageText(): Promise<string | null> {
     const tab = this.activeTab;
     if (!tab) return null;
+
+    // Try CDP method first (bypasses CSP)
+    try {
+      const cdpText = await tab.getTextViaCDP();
+      if (cdpText && cdpText.length > 0) {
+        return cdpText;
+      }
+    } catch (e) {
+      console.log("[SingleTabStrategy] CDP failed, trying other methods...");
+    }
+
+    // Try standard method
     try {
       return await tab.getTabText();
     } catch (error) {
