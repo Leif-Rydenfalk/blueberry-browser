@@ -215,11 +215,12 @@ Every sidebar panel follows this skeleton:
 
 ```tsx
 <div className={cn(
-  "rounded-2xl border border-border/50 bg-background/60",
-  "hover:border-border hover:bg-background",
-  "transition-all p-3 space-y-2"
+  "group rounded-xl border border-border/50",
+  "hover:border-border transition-all p-3.5 space-y-2.5"
 )}>
 ```
+
+No default background fill — cards sit on `bg-background` naturally. No `rounded-2xl` on cards; `rounded-xl` (12 px) keeps the look tight.
 
 ### Inline input pattern (annotation, rename)
 
@@ -254,19 +255,20 @@ Used for confirmations and run-workflow goal override. Slides up from the bottom
 The sidebar top-level tab switcher (Agent | Workflows):
 
 ```tsx
-<div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-border/50">
+<div className="flex border-b border-border/50">
   <button className={cn(
-    "flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors",
+    "flex-1 py-2.5 text-xs font-medium transition-colors",
+    "border-b-2 -mb-px",
     isActive
-      ? "bg-primary/10 text-primary"
-      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+      ? "text-foreground border-primary"
+      : "text-muted-foreground border-transparent hover:text-foreground"
   )}>
     Tab label
   </button>
 </div>
 ```
 
-Active state: `bg-primary/10 text-primary`. No underline, no border — the filled background is enough.
+Active state: underline `border-primary` — no filled pill, just a 2px bottom border flush with the container border.
 
 ---
 

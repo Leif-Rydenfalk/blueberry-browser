@@ -19,14 +19,15 @@ const SidebarContent: React.FC = () => {
   return (
     <div className="h-screen flex flex-col bg-background border-l border-border/60">
       {/* Tab switcher */}
-      <div className="flex items-center gap-1 px-3 pt-2 pb-1 border-b border-border/50">
+      <div className="flex border-b border-border/50">
         <button
           onClick={() => setActiveTab("agent")}
           className={cn(
-            "flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors",
+            "flex-1 py-2.5 text-xs font-medium transition-colors",
+            "border-b-2 -mb-px",
             activeTab === "agent"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              ? "text-foreground border-primary"
+              : "text-muted-foreground border-transparent hover:text-foreground",
           )}
         >
           Agent
@@ -34,10 +35,11 @@ const SidebarContent: React.FC = () => {
         <button
           onClick={() => setActiveTab("workflows")}
           className={cn(
-            "flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors",
+            "flex-1 py-2.5 text-xs font-medium transition-colors",
+            "border-b-2 -mb-px",
             activeTab === "workflows"
-              ? "bg-primary/10 text-primary"
-              : "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+              ? "text-foreground border-primary"
+              : "text-muted-foreground border-transparent hover:text-foreground",
           )}
         >
           Workflows

@@ -20,8 +20,6 @@ import {
   Search,
   Flag,
   Send,
-  Bot,
-  User,
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
@@ -118,19 +116,19 @@ const AgentStepMessage: React.FC<{
   expanded: boolean;
   onToggle: () => void;
 }> = ({ step, expanded, onToggle }) => (
-  <div className="ml-8">
+  <div>
     <div
       className={cn(
-        "flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs",
-        "bg-muted/30 hover:bg-muted/50 transition-colors",
-        step.status === "running" && "bg-primary/5",
+        "flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer text-xs",
+        "hover:bg-secondary transition-colors",
+        step.status === "running" && "text-primary",
       )}
       onClick={onToggle}
     >
       <StatusIcon status={step.status} />
       <ActionIcon type={step.action.type} />
-      <span className="font-medium truncate">{getActionSummary(step)}</span>
-      <span className="text-muted-foreground ml-auto shrink-0">
+      <span className="truncate flex-1">{getActionSummary(step)}</span>
+      <span className="text-muted-foreground shrink-0 tabular-nums">
         {step.step}/{step.totalSteps}
       </span>
       {expanded ? (
@@ -141,15 +139,15 @@ const AgentStepMessage: React.FC<{
     </div>
 
     {expanded && (
-      <div className="ml-4 mt-1 space-y-2 text-xs">
+      <div className="ml-6 mt-1 mb-1 space-y-2 text-xs">
         {step.action.reasoning && (
-          <div className="text-muted-foreground">{step.action.reasoning}</div>
+          <p className="text-muted-foreground">{step.action.reasoning}</p>
         )}
         {step.result && !step.result.success && (
-          <div className="text-red-500">{step.result.error}</div>
+          <p className="text-red-500">{step.result.error}</p>
         )}
         {step.result?.success && step.result.data !== undefined && (
-          <pre className="max-h-40 overflow-auto rounded-lg bg-secondary/60 p-2 text-[11px] text-muted-foreground">
+          <pre className="max-h-40 overflow-auto rounded-lg bg-secondary p-2 text-[11px] text-muted-foreground">
             {typeof step.result.data === "string"
               ? step.result.data
               : JSON.stringify(step.result.data, null, 2)}
@@ -159,7 +157,7 @@ const AgentStepMessage: React.FC<{
           <img
             src={step.screenshot}
             alt={`Step ${step.step} screenshot`}
-            className="mt-1 rounded-lg border max-w-full"
+            className="rounded-lg border border-border/50 max-w-full"
           />
         )}
       </div>
@@ -282,29 +280,22 @@ export const AgentPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-        <div className="flex items-center gap-2">
-          <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center">
-            <Bot className="size-4 text-primary" />
-          </div>
-          <div>
-            <span className="text-sm font-semibold">Blueberry AI</span>
-            {isRunning && (
-              <span className="ml-2 text-xs text-primary animate-pulse">
-                ● working
-              </span>
-            )}
-          </div>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+        <div className="flex items-center gap-2.5">
+          <span className="text-sm font-semibold">Blueberry AI</span>
+          {isRunning && (
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-primary animate-pulse shrink-0" />
+              working
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <select
             value={selectedModelValue}
             onChange={(event) => handleModelChange(event.target.value)}
             disabled={isRunning || modelOptions.length === 0}
-            className={cn(
-              "h-7 max-w-[150px] rounded-md border border-border/50 bg-background px-2 text-xs text-foreground outline-none",
-              "focus:border-primary/40 disabled:cursor-not-allowed disabled:opacity-50",
-            )}
+            className="text-xs text-muted-foreground bg-transparent border-0 outline-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 hover:text-foreground transition-colors"
             title={modelError || modelSelection?.label || "Model"}
           >
             {modelOptions.map((option) => (
@@ -339,23 +330,21 @@ export const AgentPanel: React.FC = () => {
         </div>
       </div>
       {modelError && (
-        <div className="border-b border-border/30 px-4 py-1 text-xs text-red-500">
+        <div className="border-b border-border/30 px-4 py-1 text-xs text-destructive">
           {modelError}
         </div>
       )}
 
       {/* Progress bar */}
       {isRunning && (
-        <div className="px-4 py-1.5 bg-primary/5 border-b border-border/30">
-          <div className="flex items-center justify-between text-xs mb-1">
-            <span className="text-muted-foreground truncate max-w-[200px]">
-              {goal}
-            </span>
-            <span className="text-primary font-medium">
-              Step {currentStep} of {maxSteps}
+        <div className="px-4 py-2 border-b border-border/30">
+          <div className="flex items-center justify-between text-xs mb-1.5">
+            <span className="text-muted-foreground truncate max-w-[200px]">{goal}</span>
+            <span className="text-muted-foreground tabular-nums shrink-0 ml-2">
+              {currentStep}/{maxSteps}
             </span>
           </div>
-          <div className="w-full h-1 bg-muted rounded-full overflow-hidden">
+          <div className="h-px w-full bg-border rounded-full overflow-hidden">
             <div
               className="h-full bg-primary rounded-full transition-all duration-300"
               style={{ width: `${(currentStep / maxSteps) * 100}%` }}
@@ -395,26 +384,20 @@ export const AgentPanel: React.FC = () => {
               );
             }
 
-            // Regular message
             return (
               <div
                 key={msg.id}
                 className={cn(
-                  "flex gap-2",
+                  "flex",
                   msg.role === "user" ? "justify-end" : "justify-start",
                 )}
               >
-                {msg.role === "assistant" && (
-                  <div className="size-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-1">
-                    <Bot className="size-3.5 text-primary" />
-                  </div>
-                )}
                 <div
                   className={cn(
-                    "max-w-[85%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed",
+                    "max-w-[85%] text-sm",
                     msg.role === "user"
-                      ? "bg-primary text-primary-foreground rounded-tr-sm"
-                      : "bg-muted/50 text-foreground rounded-tl-sm",
+                      ? "bg-primary text-primary-foreground rounded-xl px-3.5 py-2"
+                      : "text-foreground",
                   )}
                 >
                   {msg.role === "assistant" ? (
@@ -423,11 +406,6 @@ export const AgentPanel: React.FC = () => {
                     msg.content
                   )}
                 </div>
-                {msg.role === "user" && (
-                  <div className="size-6 rounded-md bg-secondary flex items-center justify-center shrink-0 mt-1">
-                    <User className="size-3.5" />
-                  </div>
-                )}
               </div>
             );
           })
@@ -436,8 +414,14 @@ export const AgentPanel: React.FC = () => {
       </div>
 
       {/* Input */}
-      <div className="p-3 border-t border-border/50 bg-background/80 backdrop-blur-sm">
-        <div className="relative flex items-end gap-2 bg-secondary/60 dark:bg-secondary/30 rounded-2xl px-3 py-2 border border-border/40 focus-within:border-primary/30 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
+      <div className="p-3 border-t border-border/50">
+        <div
+          className={cn(
+            "flex items-end gap-2 rounded-xl px-3 py-2",
+            "border border-border/60 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/10",
+            "transition-all",
+          )}
+        >
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -450,19 +434,19 @@ export const AgentPanel: React.FC = () => {
             onClick={handleSubmit}
             disabled={!input.trim()}
             className={cn(
-              "size-8 rounded-xl flex items-center justify-center shrink-0 transition-all",
-              "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm",
+              "size-7 rounded-lg flex items-center justify-center shrink-0 transition-all",
+              "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
             )}
           >
-            <Send className="size-4" />
+            <Send className="size-3.5" />
           </button>
         </div>
         {tokenUsage && tokenUsage.totalTokens > 0 && (
-          <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground/50 select-none">
+          <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground/40 select-none">
             <span title="Input tokens">↑ {formatTokens(tokenUsage.inputTokens)}</span>
-            <span className="text-muted-foreground/30">·</span>
+            <span>·</span>
             <span title="Output tokens">↓ {formatTokens(tokenUsage.outputTokens)}</span>
-            <span className="text-muted-foreground/30">·</span>
+            <span>·</span>
             <span>{formatTokens(tokenUsage.totalTokens)} tokens</span>
           </div>
         )}

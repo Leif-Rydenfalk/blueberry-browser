@@ -66,11 +66,11 @@ const RecordingBar: React.FC = () => {
   };
 
   return (
-    <div className="mx-3 mb-2 rounded-2xl border border-red-500/30 bg-red-500/5 p-3 space-y-2">
+    <div className="mx-3 mb-2 rounded-xl border border-red-500/20 bg-red-500/5 p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <span className="size-2 rounded-full bg-red-500 animate-pulse shrink-0" />
-        <span className="text-xs font-semibold text-red-500">Recording</span>
-        <span className="text-xs text-muted-foreground ml-auto">
+        <span className="size-1.5 rounded-full bg-red-500 animate-pulse shrink-0" />
+        <span className="text-xs font-medium text-red-500">Recording</span>
+        <span className="text-xs text-muted-foreground ml-auto tabular-nums">
           {recording.stepCount} steps · {elapsed}s
         </span>
       </div>
@@ -114,7 +114,7 @@ const RecordingBar: React.FC = () => {
           onClick={() => setAnnotating(true)}
           className={cn(
             "flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs",
-            "border border-border/40 bg-background/60 hover:bg-background",
+            "border border-border/40 hover:bg-background/60",
             "text-muted-foreground hover:text-foreground transition-colors",
           )}
         >
@@ -193,60 +193,53 @@ const WorkflowCard: React.FC<{
   return (
     <div
       className={cn(
-        "group rounded-2xl border border-border/50 bg-background/60",
-        "hover:border-border hover:bg-background transition-all p-3 space-y-2",
+        "group rounded-xl border border-border/50",
+        "hover:border-border transition-all p-3.5 space-y-2.5",
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="size-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-          <span className="text-base">🫐</span>
-        </div>
-        <div className="flex-1 min-w-0">
-          {editing ? (
-            <div className="flex gap-1">
-              <input
-                value={editName}
-                onChange={(e) => setEditName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRename();
-                  if (e.key === "Escape") setEditing(false);
-                }}
-                className="flex-1 text-sm rounded-md bg-background border border-border/50 px-2 py-0.5 outline-none focus:border-primary/40"
-                autoFocus
-              />
-              <button
-                onClick={handleRename}
-                className="p-1 rounded hover:bg-primary/10 text-primary"
-              >
-                <Check className="size-3" />
-              </button>
-              <button
-                onClick={() => setEditing(false)}
-                className="p-1 rounded hover:bg-muted text-muted-foreground"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1">
-              <span className="text-sm font-medium truncate">
-                {workflow.name}
-              </span>
-              <button
-                onClick={() => setEditing(true)}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted text-muted-foreground transition-opacity"
-              >
-                <Pencil className="size-3" />
-              </button>
-            </div>
-          )}
-          <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
-            <span>{workflow.stepCount} steps</span>
-            <span>·</span>
-            <span>{formatDuration(workflow.duration)}</span>
-            <span>·</span>
-            <span>{formatTime(workflow.createdAt)}</span>
+      <div>
+        {editing ? (
+          <div className="flex gap-1">
+            <input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRename();
+                if (e.key === "Escape") setEditing(false);
+              }}
+              className="flex-1 text-sm rounded-lg bg-background border border-border/50 px-2 py-0.5 outline-none focus:border-primary/40"
+              autoFocus
+            />
+            <button
+              onClick={handleRename}
+              className="p-1 rounded hover:bg-primary/10 text-primary"
+            >
+              <Check className="size-3" />
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground"
+            >
+              <X className="size-3" />
+            </button>
           </div>
+        ) : (
+          <div className="flex items-center gap-1.5">
+            <span className="text-sm font-medium truncate">{workflow.name}</span>
+            <button
+              onClick={() => setEditing(true)}
+              className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity"
+            >
+              <Pencil className="size-3" />
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+          <span>{workflow.stepCount} steps</span>
+          <span>·</span>
+          <span>{formatDuration(workflow.duration)}</span>
+          <span>·</span>
+          <span>{formatTime(workflow.createdAt)}</span>
         </div>
       </div>
 
@@ -257,16 +250,16 @@ const WorkflowCard: React.FC<{
         <span className="truncate">{formatUrl(workflow.endUrl)}</span>
       </div>
 
-      <div className="flex gap-1.5 pt-0.5">
+      <div className="flex gap-1.5">
         <button
           onClick={onExecute}
           className={cn(
-            "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-medium",
+            "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium",
             "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
           )}
         >
           <Play className="size-3" />
-          Run workflow
+          Run
         </button>
         {confirming ? (
           <>
@@ -275,13 +268,13 @@ const WorkflowCard: React.FC<{
                 await deleteWorkflow(workflow.id);
                 setConfirming(false);
               }}
-              className="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
+              className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-red-500 hover:bg-red-500/10 transition-colors"
             >
               Delete
             </button>
             <button
               onClick={() => setConfirming(false)}
-              className="px-2.5 py-1.5 rounded-xl text-xs border border-border/50 hover:bg-muted text-muted-foreground transition-colors"
+              className="px-2.5 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors"
             >
               Cancel
             </button>
@@ -289,7 +282,7 @@ const WorkflowCard: React.FC<{
         ) : (
           <button
             onClick={() => setConfirming(true)}
-            className="p-1.5 rounded-xl border border-border/50 hover:bg-red-500/10 hover:border-red-500/30 text-muted-foreground hover:text-red-500 transition-colors"
+            className="p-1.5 rounded-lg hover:bg-red-500/10 hover:text-red-500 text-muted-foreground transition-colors"
           >
             <Trash2 className="size-3.5" />
           </button>
@@ -316,17 +309,14 @@ const ExecuteModal: React.FC<{
       />
       <div
         className={cn(
-          "relative w-full rounded-2xl p-4 space-y-3",
-          "bg-background border border-border/60 shadow-lg",
+          "relative w-full rounded-xl p-4 space-y-3",
+          "bg-background border border-border shadow-xl",
         )}
       >
-        <div className="flex items-center gap-2">
-          <span className="text-lg">🫐</span>
-          <div>
-            <div className="text-sm font-semibold">Run "{workflow.name}"</div>
-            <div className="text-xs text-muted-foreground">
-              {workflow.stepCount} steps · {formatDuration(workflow.duration)}
-            </div>
+        <div>
+          <div className="text-sm font-semibold">Run "{workflow.name}"</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            {workflow.stepCount} steps · {formatDuration(workflow.duration)}
           </div>
         </div>
 
@@ -340,7 +330,7 @@ const ExecuteModal: React.FC<{
             placeholder={`Reproduce this workflow as-is, or describe changes...`}
             rows={3}
             className={cn(
-              "w-full text-sm rounded-xl border border-border/50 bg-secondary/30",
+              "w-full text-sm rounded-xl border border-border/50",
               "px-3 py-2 outline-none focus:border-primary/40 resize-none",
             )}
           />
@@ -349,14 +339,14 @@ const ExecuteModal: React.FC<{
         <div className="flex gap-2">
           <button
             onClick={() => onConfirm(goal.trim() || undefined)}
-            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+            className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
           >
             <Play className="size-3.5" />
             Start agent
           </button>
           <button
             onClick={onCancel}
-            className="px-4 py-2 rounded-xl text-sm border border-border/50 hover:bg-muted text-muted-foreground transition-colors"
+            className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors"
           >
             Cancel
           </button>
@@ -391,14 +381,11 @@ export const WorkflowPanel: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">
-        <div className="flex items-center gap-2">
-          <div className="size-7 rounded-lg bg-primary/10 flex items-center justify-center">
-            <span className="text-sm">🫐</span>
-          </div>
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
+        <div className="flex items-center gap-2.5">
           <span className="text-sm font-semibold">Workflows</span>
           {recording.isRecording && (
-            <span className="flex items-center gap-1 text-xs text-red-500">
+            <span className="flex items-center gap-1.5 text-xs text-red-500">
               <span className="size-1.5 rounded-full bg-red-500 animate-pulse" />
               recording
             </span>
@@ -408,8 +395,8 @@ export const WorkflowPanel: React.FC = () => {
           <button
             onClick={startRecording}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium",
-              "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium",
+              "text-red-500 hover:bg-red-500/10 transition-colors",
             )}
           >
             <Circle className="size-3" />
@@ -427,8 +414,8 @@ export const WorkflowPanel: React.FC = () => {
 
       {/* Agent executing notice */}
       {isExecuting && (
-        <div className="mx-3 my-2 flex items-center gap-2 rounded-xl bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-primary">
-          <Loader2 className="size-3.5 animate-spin" />
+        <div className="mx-3 my-2 flex items-center gap-2 rounded-lg border border-border/50 px-3 py-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3.5 animate-spin text-primary shrink-0" />
           Agent is running the workflow...
         </div>
       )}
@@ -448,8 +435,8 @@ export const WorkflowPanel: React.FC = () => {
                 <button
                   onClick={startRecording}
                   className={cn(
-                    "mt-2 flex items-center gap-1.5 mx-auto px-4 py-2 rounded-xl text-xs font-medium",
-                    "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors",
+                    "mt-2 flex items-center gap-1.5 mx-auto px-4 py-2 rounded-lg text-xs font-medium",
+                    "text-red-500 hover:bg-red-500/10 transition-colors",
                   )}
                 >
                   <Circle className="size-3" />
