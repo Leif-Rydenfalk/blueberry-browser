@@ -30,8 +30,7 @@ export class SingleTabStrategy implements TabStrategy {
     goal: string,
     history: ReadonlyArray<import("../types/AgentTypes").AgentStep>,
   ): Promise<AgentContext> {
-    const [screenshot, pageText, currentUrl, interactiveElements] = await Promise.all([
-      this.captureScreenshot(),
+    const [pageText, currentUrl, interactiveElements] = await Promise.all([
       this.getPageText(),
       this.getCurrentUrl(),
       this.getInteractiveElements(),
@@ -42,7 +41,7 @@ export class SingleTabStrategy implements TabStrategy {
       history,
       currentUrl,
       pageText,
-      screenshot,
+      screenshot: null,
       interactiveElements,
       tabs: this.getTabsInfo(),
     };
@@ -119,11 +118,11 @@ export class SingleTabStrategy implements TabStrategy {
     }
   }
 
-  async captureScreenshot(): Promise<string | null> {
+  async captureScreenshot(maxWidth = 800): Promise<string | null> {
     const tab = this.activeTab;
     if (!tab) return null;
     try {
-      const image = await tab.screenshot();
+      const image = await tab.screenshot({ maxWidth });
       return image.toDataURL();
     } catch (error) {
       console.error("[SingleTabStrategy] Screenshot failed:", error);

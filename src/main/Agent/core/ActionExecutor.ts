@@ -50,7 +50,7 @@ export class ActionExecutor {
         case "extract":
           return await this.executeExtract(tab, action.params as ExtractParams);
         case "screenshot": {
-          const image = await tab.screenshot();
+          const image = await tab.screenshot({ maxWidth: 800 });
           return { success: true, data: { screenshot: image.toDataURL() } };
         }
         case "finish":

@@ -115,36 +115,36 @@ export class AgentRunner {
             : undefined,
         };
 
-        this.emitUpdate({
-          step: stepNum,
-          totalSteps: this.config.maxSteps,
-          action: {
-            type: "screenshot",
-            params: {},
-            reasoning: "Analyzing page state",
-          },
-          status: "pending",
-          sessionId: "",
-        });
-
-        // Build prompt with image if available
         const basePrompt = buildReActPrompt(context);
-
-        let responseText: string | null;
-        if (context.screenshot) {
-          responseText = await this.llmClient.generateVisionText(
-            basePrompt,
-            context.screenshot,
-          );
-        } else {
-          responseText = await this.llmClient.generateText(basePrompt);
-        }
+        const responseText = await this.llmClient.generateText(basePrompt);
 
         if (!responseText) {
           throw new Error("Failed to get response from LLM");
         }
 
-        const action = this.parseActionFromResponse(responseText);
+        let action = this.parseActionFromResponse(responseText);
+
+        // If agent requests a screenshot, capture and re-ask with the image
+        if (action?.type === "screenshot") {
+          this.emitUpdate({
+            step: stepNum,
+            totalSteps: this.config.maxSteps,
+            action,
+            status: "running",
+            sessionId: "",
+          });
+          const screenshotData = await this.strategy.captureScreenshot();
+          if (screenshotData) {
+            const visionResponse = await this.llmClient.generateVisionText(
+              basePrompt,
+              screenshotData,
+            );
+            if (visionResponse) {
+              const nextAction = this.parseActionFromResponse(visionResponse);
+              if (nextAction) action = nextAction;
+            }
+          }
+        }
         if (!action) {
           console.error(
             "[AgentRunner] Failed to parse action from:",

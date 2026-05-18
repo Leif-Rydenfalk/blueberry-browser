@@ -388,7 +388,7 @@ export class LLMClient {
         const activeTab = this.window.activeTab;
         if (activeTab) {
           try {
-            const image = await activeTab.screenshot();
+            const image = await activeTab.screenshot({ maxWidth: 800 });
             screenshot = image.toDataURL();
           } catch (error) {
             console.error("Failed to capture screenshot:", error);

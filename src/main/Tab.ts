@@ -120,8 +120,15 @@ export class Tab {
     this.webContentsView.setVisible(false);
   }
 
-  async screenshot(): Promise<NativeImage> {
-    return await this.webContentsView.webContents.capturePage();
+  async screenshot(options?: { maxWidth?: number }): Promise<NativeImage> {
+    const image = await this.webContentsView.webContents.capturePage();
+    if (options?.maxWidth) {
+      const { width } = image.getSize();
+      if (width > options.maxWidth) {
+        return image.resize({ width: options.maxWidth, quality: "good" });
+      }
+    }
+    return image;
   }
 
   async runJs(code: string): Promise<unknown> {

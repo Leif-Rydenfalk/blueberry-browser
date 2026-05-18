@@ -191,7 +191,7 @@ export interface TabStrategy {
     history: ReadonlyArray<AgentStep>,
   ): Promise<AgentContext>;
   executeAction(action: AgentAction): Promise<ActionResult>;
-  captureScreenshot(): Promise<string | null>;
+  captureScreenshot(maxWidth?: number): Promise<string | null>;
   getPageText(): Promise<string | null>;
   getCurrentUrl(): Promise<string | null>;
 }
