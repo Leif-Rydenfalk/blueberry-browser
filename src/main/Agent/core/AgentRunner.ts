@@ -70,7 +70,6 @@ export class AgentRunner {
         }
 
         const context = await this.strategy.getActiveContext(goal, this.steps);
-        const prompt = buildReActPrompt(context);
 
         this.emitUpdate({
           step: stepNum + 1,
@@ -80,7 +79,18 @@ export class AgentRunner {
           sessionId: "",
         });
 
-        const responseText = await this.llmClient.generateText(prompt);
+        // Capture screenshot for vision
+        const screenshot = await this.strategy.captureScreenshot();
+
+        // Build prompt with image if available
+        const basePrompt = buildReActPrompt(context);
+
+        let responseText: string | null;
+        if (screenshot) {
+          responseText = await this.llmClient.generateVisionText(basePrompt, screenshot);
+        } else {
+          responseText = await this.llmClient.generateText(basePrompt);
+        }
 
         if (!responseText) {
           throw new Error("Failed to get response from LLM");
@@ -101,14 +111,14 @@ export class AgentRunner {
         });
 
         const result = await this.strategy.executeAction(action);
-        const screenshot = await this.strategy.captureScreenshot();
+        const afterScreenshot = await this.strategy.captureScreenshot();
 
         const step: AgentStep = {
           id: uuidv4(),
           timestamp: Date.now(),
           action,
           result,
-          screenshot: screenshot || undefined,
+          screenshot: afterScreenshot || undefined,
         };
         this.steps.push(step);
 

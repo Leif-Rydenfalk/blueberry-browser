@@ -169,6 +169,37 @@ export class LLMClient {
     }
   }
 
+  async generateVisionText(prompt: string, imageBase64: string, temperature?: number): Promise<string | null> {
+    if (!this.model) return null;
+    try {
+      const messages: any[] = [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image", image: imageBase64 },
+          ],
+        },
+      ];
+
+      const options: any = {
+        model: this.model,
+        messages,
+        maxRetries: 2,
+      };
+      if (temperature !== undefined) {
+        options.temperature = temperature;
+      }
+
+      const result = await generateText(options);
+      return result.text;
+    } catch (error) {
+      console.error("[LLMClient] generateVisionText failed:", error);
+      // Fallback to text-only
+      return this.generateText(prompt, temperature);
+    }
+  }
+
   clearMessages(): void {
     this.messages = [];
     this.sendMessagesToRenderer();
