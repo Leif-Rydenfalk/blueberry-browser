@@ -5,12 +5,13 @@ import { Favicon } from '../components/Favicon'
 import { TabBarButton } from '../components/TabBarButton'
 import { cn } from '@common/lib/utils'
 
+const isMac = window.topBarAPI?.platform === 'darwin'
+
 interface TabItemProps {
     id: string
     title: string
     favicon?: string | null
     isActive: boolean
-    isPinned?: boolean
     onClose: () => void
     onActivate: () => void
 }
@@ -19,84 +20,66 @@ const TabItem: React.FC<TabItemProps> = ({
     title,
     favicon,
     isActive,
-    isPinned = false,
     onClose,
     onActivate
 }) => {
-    const baseClassName = cn(
-        "relative flex items-center h-8 pl-2 pr-1.5 select-none rounded-md",
-        "text-primary group/tab transition-all duration-200 cursor-pointer",
-        "app-region-no-drag", // Make tabs clickable
-        isActive
-            ? "bg-background shadow-tab dark:bg-secondary dark:shadow-none"
-            : "bg-transparent hover:bg-muted/50 dark:hover:bg-muted/30",
-        isPinned ? "w-8 !px-0 justify-center" : ""
-    )
-
     return (
         <div className="py-1 px-0.5">
             <div
-                className={baseClassName}
+                className={cn(
+                    "relative flex items-center h-7 pl-2.5 pr-1.5 select-none rounded-lg gap-2",
+                    "text-sm transition-all duration-200 cursor-pointer app-region-no-drag",
+                    isActive
+                        ? "bg-white dark:bg-slate-700 shadow-sm text-foreground font-medium ring-1 ring-border/60 dark:ring-border/30"
+                        : "bg-transparent hover:bg-black/[0.04] dark:hover:bg-white/[0.06] text-muted-foreground"
+                )}
                 onClick={() => !isActive && onActivate()}
             >
-                {/* Favicon */}
-                <div className={cn(!isPinned && "mr-2")}>
-                    <Favicon src={favicon} />
+                <Favicon src={favicon} className="size-3.5" />
+                <span className="text-xs truncate max-w-[160px] leading-none">
+                    {title || 'New Tab'}
+                </span>
+                <div
+                    onClick={(e) => { e.stopPropagation(); onClose() }}
+                    className={cn(
+                        "flex-shrink-0 p-0.5 rounded-md transition-all",
+                        "hover:bg-black/10 dark:hover:bg-white/10",
+                        "opacity-0 group-hover/tab:opacity-100",
+                        isActive && "opacity-60 hover:opacity-100"
+                    )}
+                >
+                    <X className="size-3" />
                 </div>
-
-                {/* Title (hide for pinned tabs) */}
-                {!isPinned && (
-                    <span className="text-xs truncate max-w-[200px] flex-1">
-                        {title || 'New Tab'}
-                    </span>
-                )}
-
-                {/* Close button (shows on hover) */}
-                {!isPinned && (
-                    <div
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            onClose()
-                        }}
-                        className={cn(
-                            "flex-shrink-0 p-1 rounded-md transition-opacity",
-                            "hover:bg-muted dark:hover:bg-muted/50",
-                            "opacity-0 group-hover/tab:opacity-100",
-                            isActive && "opacity-100"
-                        )}
-                    >
-                        <X className="size-3 text-primary dark:text-primary" />
-                    </div>
-                )}
             </div>
         </div>
     )
 }
 
 export const TabBar: React.FC = () => {
-    const { tabs, createTab, closeTab, switchTab, isLoading } = useBrowser()
+    const { tabs, createTab, closeTab, switchTab } = useBrowser()
 
-    const handleCreateTab = () => {
-        createTab('https://www.google.com')
-    }
+    const handleCreateTab = () => createTab('https://www.google.com')
 
-    // Extract favicon from URL (simplified - you might want to improve this)
     const getFavicon = (url: string) => {
         try {
             const domain = new URL(url).hostname
             return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
-        } catch {
-            return null
-        }
+        } catch { return null }
     }
 
     return (
         <div className="flex-1 overflow-x-hidden flex items-center">
-            {/* macOS traffic lights spacing */}
-            <div className="pl-20" />
+            {/* macOS traffic lights OR blueberry logo */}
+            {isMac ? (
+                <div className="pl-[88px]" />
+            ) : (
+                <div className="pl-3 pr-2 flex items-center app-region-no-drag">
+                    <span className="text-base" title="Blueberry Browser">🫐</span>
+                </div>
+            )}
 
             {/* Tabs */}
-            <div className="flex-1 overflow-x-auto flex">
+            <div className="flex-1 overflow-x-auto flex no-scrollbar">
                 {tabs.map(tab => (
                     <TabItem
                         key={tab.id}
@@ -112,12 +95,8 @@ export const TabBar: React.FC = () => {
 
             {/* Add Tab Button */}
             <div className="pl-1 pr-2">
-                <TabBarButton
-                    Icon={Plus}
-                    onClick={handleCreateTab}
-                />
+                <TabBarButton Icon={Plus} onClick={handleCreateTab} />
             </div>
         </div>
     )
 }
-

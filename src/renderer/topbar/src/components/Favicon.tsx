@@ -1,26 +1,25 @@
 import React, { useState } from "react";
 import { Globe } from "lucide-react";
+import { cn } from "@common/lib/utils";
 
 interface FaviconProps {
     src?: string | null;
     className?: string;
 }
 
-export const Favicon: React.FC<FaviconProps> = ({ src, className }) => {
+export const Favicon: React.FC<FaviconProps> = ({ src, className = "size-4" }) => {
     const [error, setError] = useState(false);
 
     if (!src || error) {
-        return <Globe className={`size-4 text-muted-foreground ${className || ""}`} />;
+        return <Globe className={cn("text-muted-foreground/60", className)} />;
     }
 
     return (
-        <div className="size-4 overflow-hidden rounded-sm flex items-center justify-center">
-            <img
-                src={src}
-                className="object-contain size-full"
-                onError={() => setError(true)}
-                alt=""
-            />
-        </div>
+        <img
+            src={src}
+            className={cn("object-contain rounded-sm", className)}
+            onError={() => setError(true)}
+            alt=""
+        />
     );
 };

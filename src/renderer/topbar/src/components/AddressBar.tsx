@@ -11,145 +11,76 @@ export const AddressBar: React.FC = () => {
     const [url, setUrl] = useState('')
     const [isEditing, setIsEditing] = useState(false)
     const [isFocused, setIsFocused] = useState(false)
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false)
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
-    // Update URL when active tab changes
     useEffect(() => {
-        if (activeTab && !isEditing) {
-            setUrl(activeTab.url || '')
-        }
+        if (activeTab && !isEditing) setUrl(activeTab.url || '')
     }, [activeTab, isEditing])
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault()
         if (!url.trim()) return
-
         let finalUrl = url.trim()
-
-        // Add protocol if missing
         if (!finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-            // Check if it looks like a domain
             if (finalUrl.includes('.') && !finalUrl.includes(' ')) {
                 finalUrl = `https://${finalUrl}`
             } else {
-                // Treat as search query
                 finalUrl = `https://www.google.com/search?q=${encodeURIComponent(finalUrl)}`
             }
         }
-
         navigateToUrl(finalUrl)
         setIsEditing(false)
         setIsFocused(false)
             ; (document.activeElement as HTMLElement)?.blur()
     }
 
-    const handleFocus = () => {
-        setIsEditing(true)
-        setIsFocused(true)
-    }
-
+    const handleFocus = () => { setIsEditing(true); setIsFocused(true) }
     const handleBlur = () => {
-        setIsEditing(false)
-        setIsFocused(false)
-        // Reset to current tab URL if editing was cancelled
-        if (activeTab) {
-            setUrl(activeTab.url || '')
-        }
+        setIsEditing(false); setIsFocused(false)
+        if (activeTab) setUrl(activeTab.url || '')
     }
 
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Escape') {
-            setIsEditing(false)
-            setIsFocused(false)
-            if (activeTab) {
-                setUrl(activeTab.url || '')
-            }
-            ; (e.target as HTMLInputElement).blur()
-        }
+    const getDomain = () => {
+        if (!activeTab?.url) return ''
+        try { return new URL(activeTab.url).hostname.replace('www.', '') } catch { return activeTab.url }
+    }
+
+    const getFavicon = () => {
+        if (!activeTab?.url) return null
+        try { return `https://www.google.com/s2/favicons?domain=${new URL(activeTab.url).hostname}&sz=32` } catch { return null }
+    }
+
+    const toggleSidebar = () => {
+        setIsSidebarOpen(!isSidebarOpen)
+        window.topBarAPI?.toggleSidebar()
     }
 
     const canGoBack = activeTab !== null
     const canGoForward = activeTab !== null
 
-    // Extract domain and title for display
-    const getDomain = () => {
-        if (!activeTab?.url) return ''
-        try {
-            const urlObj = new URL(activeTab.url)
-            return urlObj.hostname.replace('www.', '')
-        } catch {
-            return activeTab.url
-        }
-    }
-
-    const getPath = () => {
-        if (!activeTab?.url) return ''
-        try {
-            const urlObj = new URL(activeTab.url)
-            return urlObj.pathname + urlObj.search + urlObj.hash
-        } catch {
-            return ''
-        }
-    }
-
-    const getFavicon = () => {
-        if (!activeTab?.url) return null
-        try {
-            const domain = new URL(activeTab.url).hostname
-            return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`
-        } catch {
-            return null
-        }
-    }
-
-    const toggleSidebar = () => {
-        setIsSidebarOpen(!isSidebarOpen)
-        // Send IPC event to toggle sidebar
-        if (window.topBarAPI) {
-            window.topBarAPI.toggleSidebar()
-        }
-    }
-
     return (
         <>
             {/* Navigation Controls */}
-            <div className="flex gap-1.5 app-region-no-drag">
-                <ToolBarButton
-                    Icon={ArrowLeft}
-                    onClick={goBack}
-                    active={canGoBack && !isLoading}
-                />
-                <ToolBarButton
-                    Icon={ArrowRight}
-                    onClick={goForward}
-                    active={canGoForward && !isLoading}
-                />
-                <ToolBarButton
-                    onClick={reload}
-                    active={activeTab !== null && !isLoading}
-                >
-                    {isLoading ? (
-                        <Loader2 className="size-4.5 animate-spin" />
-                    ) : (
-                        <RefreshCw className="size-4.5" />
-                    )}
+            <div className="flex gap-0.5 app-region-no-drag">
+                <ToolBarButton Icon={ArrowLeft} onClick={goBack} active={canGoBack && !isLoading} />
+                <ToolBarButton Icon={ArrowRight} onClick={goForward} active={canGoForward && !isLoading} />
+                <ToolBarButton onClick={reload} active={activeTab !== null && !isLoading}>
+                    {isLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                 </ToolBarButton>
             </div>
 
             {/* Address Bar */}
             {isFocused ? (
-                // Expanded State
-                <form onSubmit={handleSubmit} className="flex-1 min-w-0 max-w-full">
-                    <div className="bg-background rounded-lg shadow-md p-1 dark:bg-secondary">
+                <form onSubmit={handleSubmit} className="flex-1 min-w-0 max-w-full app-region-no-drag">
+                    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg ring-1 ring-primary/20 p-1">
                         <input
                             type="text"
                             value={url}
                             onChange={(e) => setUrl(e.target.value)}
                             onFocus={handleFocus}
                             onBlur={handleBlur}
-                            onKeyDown={handleKeyDown}
-                            className="w-full px-1 py-0.5 text-xs outline-none bg-transparent text-foreground truncate"
-                            placeholder={activeTab ? "Enter URL or search term" : "No active tab"}
+                            className="w-full px-3 py-1.5 text-sm outline-none bg-transparent text-foreground rounded-lg"
+                            placeholder={activeTab ? "Enter URL or search" : "No active tab"}
                             disabled={!activeTab}
                             spellCheck={false}
                             autoFocus
@@ -157,45 +88,28 @@ export const AddressBar: React.FC = () => {
                     </div>
                 </form>
             ) : (
-                // Collapsed State
                 <div
                     onClick={handleFocus}
                     className={cn(
-                        "flex-1 px-3 h-8 rounded-md cursor-text group/address-bar",
-                        "hover:bg-muted text-muted-foreground app-region-no-drag",
-                        "transition-colors duration-200",
-                        "dark:hover:bg-muted/50"
+                        "flex-1 px-3 h-8 rounded-full cursor-text app-region-no-drag",
+                        "bg-secondary/80 dark:bg-secondary/40 hover:bg-secondary",
+                        "transition-all duration-200 flex items-center gap-2",
+                        "border border-transparent hover:border-border/50"
                     )}
                 >
-                    <div className="flex h-full items-center">
-                        {/* Favicon */}
-                        <div className="size-4 mr-2">
-                            <Favicon src={getFavicon()} />
-                        </div>
-
-                        {/* URL Display */}
-                        <div className="text-[0.8rem] leading-normal truncate flex-1">
-                            {activeTab ? (
-                                <>
-                                    <span className="text-foreground dark:text-foreground">{getDomain()}</span>
-                                    <span className="group-hover/address-bar:hidden text-muted-foreground/60">
-                                        {activeTab.title && ` / ${activeTab.title}`}
-                                    </span>
-                                    <span className="group-hover/address-bar:inline hidden text-muted-foreground/60">
-                                        {getPath()}
-                                    </span>
-                                </>
-                            ) : (
-                                <span className="text-muted-foreground">No active tab</span>
-                            )}
-                        </div>
-
-                    </div>
+                    {isLoading ? (
+                        <span className="text-base animate-pulse">🫐</span>
+                    ) : (
+                        <Favicon src={getFavicon()} className="size-3.5" />
+                    )}
+                    <span className="text-xs text-muted-foreground truncate flex-1">
+                        {activeTab ? getDomain() : <span className="italic">No active tab</span>}
+                    </span>
                 </div>
             )}
 
-            {/* Actions Menu */}
-            <div className="flex items-center gap-1 app-region-no-drag">
+            {/* Actions */}
+            <div className="flex items-center gap-0.5 app-region-no-drag">
                 <DarkModeToggle />
                 <ToolBarButton
                     Icon={isSidebarOpen ? PanelLeftClose : PanelLeft}

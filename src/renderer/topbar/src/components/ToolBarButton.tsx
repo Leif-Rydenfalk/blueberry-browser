@@ -22,17 +22,17 @@ export const ToolBarButton: React.FC<ToolBarButtonProps> = ({
     return (
         <div
             className={cn(
-                "size-8 flex items-center justify-center rounded-md",
-                "text-secondary-foreground app-region-no-drag",
-                "transition-all duration-200",
-                !active ? "opacity-50" : "hover:bg-muted active:brightness-95 cursor-pointer",
-                toggled && "bg-muted",
+                "size-7 flex items-center justify-center rounded-lg",
+                "text-muted-foreground app-region-no-drag",
+                "transition-all duration-150",
+                !active ? "opacity-40" : "hover:bg-black/[0.06] dark:hover:bg-white/[0.08] active:scale-95 cursor-pointer",
+                toggled && "bg-primary/10 text-primary",
                 className
             )}
             onClick={active ? onClick : undefined}
             tabIndex={-1}
         >
-            {children || (Icon && <Icon className="size-4.5" />)}
+            {children || (Icon && <Icon className="size-4" />)}
         </div>
     );
 };
