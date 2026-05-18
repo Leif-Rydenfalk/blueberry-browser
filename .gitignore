@@ -134,3 +134,5 @@ logs/
 *.pem
 *.key
 *.cert
+
+node_modules/
