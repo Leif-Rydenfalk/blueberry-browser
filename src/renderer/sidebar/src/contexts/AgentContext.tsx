@@ -1,13 +1,6 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
 
-interface AgentMessage {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: number
-}
-
-interface AgentStep {
+export interface AgentStep {
   id: string
   step: number
   totalSteps: number
@@ -24,6 +17,14 @@ interface AgentStep {
   }
   screenshot?: string
   timestamp: number
+}
+
+export interface AgentMessage {
+  id: string
+  role: 'user' | 'assistant' | 'agent-step'
+  content: string
+  timestamp: number
+  stepData?: AgentStep
 }
 
 interface AgentContextType {
@@ -59,14 +60,17 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [goal, setGoal] = useState('')
   const [sessionId, setSessionId] = useState<string | null>(null)
 
-  const startAgent = useCallback(async (agentGoal: string) => {
-    // Add user message
+  const addUserMessage = useCallback((content: string) => {
     setMessages(prev => [...prev, {
-      id: Date.now().toString(),
+      id: `user-${Date.now()}`,
       role: 'user',
-      content: agentGoal,
+      content,
       timestamp: Date.now()
     }])
+  }, [])
+
+  const startAgent = useCallback(async (agentGoal: string) => {
+    addUserMessage(agentGoal)
 
     setGoal(agentGoal)
     setIsRunning(true)
@@ -83,7 +87,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       console.error('Failed to start agent:', error)
       setIsRunning(false)
     }
-  }, [])
+  }, [addUserMessage])
 
   const abortAgent = useCallback(async () => {
     try {
@@ -96,14 +100,16 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const sendMessage = useCallback(async (message: string) => {
     try {
+      addUserMessage(message)
       await window.sidebarAPI.sendMessageToAgent(message)
     } catch (error) {
       console.error('Failed to send message to agent:', error)
     }
-  }, [])
+  }, [addUserMessage])
 
   const clearAgent = useCallback(() => {
     setSteps([])
+    setMessages([])
     setIsRunning(false)
     setCurrentStep(0)
     setGoal('')
@@ -116,39 +122,45 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       setCurrentStep(data.step)
       setMaxSteps(data.totalSteps)
 
+      const newStep: AgentStep = {
+        id: `${data.sessionId}-${data.step}`,
+        step: data.step,
+        totalSteps: data.totalSteps,
+        action: data.action,
+        status: data.status,
+        result: data.result,
+        screenshot: data.screenshot,
+        timestamp: Date.now()
+      }
+
       setSteps(prev => {
         const existingIndex = prev.findIndex(s => s.step === data.step)
-        const newStep: AgentStep = {
-          id: `${data.sessionId}-${data.step}`,
-          step: data.step,
-          totalSteps: data.totalSteps,
-          action: data.action,
-          status: data.status,
-          result: data.result,
-          screenshot: data.screenshot,
-          timestamp: Date.now()
-        }
-
         if (existingIndex >= 0) {
           const updated = [...prev]
           updated[existingIndex] = newStep
           return updated
-        } else {
-          // Also add as a message so it persists in chat history
-          if (data.status === 'success' || data.status === 'error') {
-            const stepContent = data.action.type === 'finish'
-              ? data.action.params?.answer || 'Task completed'
-              : `**Step ${data.step}/${data.totalSteps}:** ${data.action.type} — ${data.action.reasoning}`
-
-            setMessages(m => [...m, {
-              id: `step-${data.sessionId}-${data.step}`,
-              role: 'assistant',
-              content: stepContent,
-              timestamp: Date.now()
-            }])
-          }
-          return [...prev, newStep]
         }
+        return [...prev, newStep]
+      })
+
+      setMessages(prev => {
+        const messageId = `step-${data.sessionId}-${data.step}`
+        const existingIndex = prev.findIndex(m => m.id === messageId)
+        const content = `Step ${data.step}/${data.totalSteps}: ${data.action.type}`
+        const nextMessage: AgentMessage = {
+          id: messageId,
+          role: 'agent-step',
+          content,
+          timestamp: existingIndex >= 0 ? prev[existingIndex].timestamp : Date.now(),
+          stepData: newStep
+        }
+
+        if (existingIndex >= 0) {
+          const updated = [...prev]
+          updated[existingIndex] = nextMessage
+          return updated
+        }
+        return [...prev, nextMessage]
       })
 
       if (data.status === 'success' && data.action.type === 'finish') {

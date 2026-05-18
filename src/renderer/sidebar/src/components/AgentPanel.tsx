@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
 import { useAgent } from '../contexts/AgentContext'
+import type { AgentStep } from '../contexts/AgentContext'
 import { Square, ChevronDown, ChevronUp, CheckCircle2, XCircle, Loader2, MousePointer, Type, ScrollText, Camera, Navigation, Search, Flag, Send, Bot, User } from 'lucide-react'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -40,15 +41,70 @@ const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
   </div>
 )
 
+const getActionSummary = (step: AgentStep) => {
+  switch (step.action.type) {
+    case 'navigate': return `Navigate to ${(step.action.params as any).url || 'page'}`
+    case 'click': return `Click ${(step.action.params as any).selector || 'coordinates'}`
+    case 'type': return `Type "${(step.action.params as any).text || ''}"`
+    case 'scroll': return `Scroll ${(step.action.params as any).direction || ''}`
+    case 'extract': return `Extract ${(step.action.params as any).name || 'data'}`
+    case 'screenshot': return 'Screenshot'
+    case 'finish': return 'Done'
+    default: return step.action.type
+  }
+}
+
+const AgentStepMessage: React.FC<{
+  step: AgentStep
+  expanded: boolean
+  onToggle: () => void
+}> = ({ step, expanded, onToggle }) => (
+  <div className="ml-8">
+    <div
+      className={cn(
+        "flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs",
+        "bg-muted/30 hover:bg-muted/50 transition-colors",
+        step.status === 'running' && "bg-primary/5"
+      )}
+      onClick={onToggle}
+    >
+      <StatusIcon status={step.status} />
+      <ActionIcon type={step.action.type} />
+      <span className="font-medium truncate">{getActionSummary(step)}</span>
+      <span className="text-muted-foreground ml-auto shrink-0">{step.step}/{step.totalSteps}</span>
+      {expanded ? <ChevronUp className="size-3 text-muted-foreground shrink-0" /> : <ChevronDown className="size-3 text-muted-foreground shrink-0" />}
+    </div>
+
+    {expanded && (
+      <div className="ml-4 mt-1 space-y-2 text-xs">
+        {step.action.reasoning && (
+          <div className="text-muted-foreground">{step.action.reasoning}</div>
+        )}
+        {step.result && !step.result.success && (
+          <div className="text-red-500">{step.result.error}</div>
+        )}
+        {step.result?.success && step.result.data !== undefined && (
+          <pre className="max-h-40 overflow-auto rounded-lg bg-secondary/60 p-2 text-[11px] text-muted-foreground">
+            {typeof step.result.data === 'string' ? step.result.data : JSON.stringify(step.result.data, null, 2)}
+          </pre>
+        )}
+        {step.screenshot && (
+          <img src={step.screenshot} alt={`Step ${step.step} screenshot`} className="mt-1 rounded-lg border max-w-full" />
+        )}
+      </div>
+    )}
+  </div>
+)
+
 export const AgentPanel: React.FC = () => {
-  const { steps, messages, isRunning, currentStep, maxSteps, goal, startAgent, abortAgent, clearAgent } = useAgent()
+  const { messages, isRunning, currentStep, maxSteps, goal, startAgent, abortAgent, sendMessage, clearAgent } = useAgent()
   const [input, setInput] = useState('')
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, steps])
+  }, [messages])
 
   const toggleStep = (stepId: string) => {
     setExpandedSteps(prev => {
@@ -63,7 +119,11 @@ export const AgentPanel: React.FC = () => {
     if (!input.trim()) return
     const text = input.trim()
     setInput('')
-    await startAgent(text)
+    if (isRunning) {
+      await sendMessage(text)
+    } else {
+      await startAgent(text)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -137,41 +197,15 @@ export const AgentPanel: React.FC = () => {
           </div>
         ) : (
           messages.map((msg) => {
-            // Check if this is a step message
-            const isStep = msg.id.startsWith('step-')
-            const stepNum = isStep ? parseInt(msg.content.match(/Step (\d+)/)?.[1] || '0') : 0
-            const step = isStep ? steps.find(s => s.step === stepNum) : null
-
-            if (isStep && step) {
-              const isExpanded = expandedSteps.has(step.id)
+            if (msg.role === 'agent-step' && msg.stepData) {
+              const isExpanded = expandedSteps.has(msg.stepData.id)
               return (
-                <div key={msg.id} className="ml-8">
-                  <div
-                    className={cn(
-                      "flex items-center gap-1.5 px-2 py-1 rounded-lg cursor-pointer text-xs",
-                      "bg-muted/30 hover:bg-muted/50 transition-colors",
-                      step.status === 'running' && "bg-primary/5"
-                    )}
-                    onClick={() => toggleStep(step.id)}
-                  >
-                    <StatusIcon status={step.status} />
-                    <ActionIcon type={step.action.type} />
-                    <span className="font-medium">{step.action.type}</span>
-                    <span className="text-muted-foreground ml-auto">{step.step}/{step.totalSteps}</span>
-                    {isExpanded ? <ChevronUp className="size-3 text-muted-foreground" /> : <ChevronDown className="size-3 text-muted-foreground" />}
-                  </div>
-                  {isExpanded && (
-                    <div className="ml-4 mt-1 space-y-1 text-xs">
-                      <div className="text-muted-foreground">{step.action.reasoning}</div>
-                      {step.result && !step.result.success && (
-                        <div className="text-red-500">{step.result.error}</div>
-                      )}
-                      {step.screenshot && (
-                        <img src={step.screenshot} alt="screenshot" className="mt-1 rounded-lg border max-w-full" />
-                      )}
-                    </div>
-                  )}
-                </div>
+                <AgentStepMessage
+                  key={msg.id}
+                  step={msg.stepData}
+                  expanded={isExpanded}
+                  onToggle={() => toggleStep(msg.stepData!.id)}
+                />
               )
             }
 
