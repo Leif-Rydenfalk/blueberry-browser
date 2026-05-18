@@ -10,6 +10,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
+import type { TokenUsageStore, TokenUsageTotals } from "./TokenUsageStore";
 
 dotenv.config({ path: join(__dirname, "../../.env") });
 
@@ -57,6 +58,7 @@ export class LLMClient {
   private summarizedMessageCount = 0;
   private modelOptions: ModelOption[] | null = null;
   private modelOptionsFetchedAt = 0;
+  private usageStore: TokenUsageStore | null = null;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -64,6 +66,20 @@ export class LLMClient {
     this.modelName = this.getModelName();
     this.model = this.initializeModel(this.provider, this.modelName);
     this.logInitializationStatus();
+  }
+
+  setUsageStore(store: TokenUsageStore): void {
+    this.usageStore = store;
+  }
+
+  getTokenUsage(): TokenUsageTotals | null {
+    return this.usageStore?.getTotals() ?? null;
+  }
+
+  private recordUsage(inputTokens: number, outputTokens: number): void {
+    if (!this.usageStore) return;
+    this.usageStore.record(inputTokens, outputTokens);
+    this.webContents.send("token-usage-updated", this.usageStore.getTotals());
   }
 
   setWindow(window: Window): void {
@@ -448,6 +464,7 @@ export class LLMClient {
         maxRetries: 2,
         ...(temperature !== undefined ? { temperature } : {}),
       });
+      this.recordUsage(result.usage.inputTokens ?? 0, result.usage.outputTokens ?? 0);
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateText failed:", error);
@@ -484,6 +501,7 @@ export class LLMClient {
         maxRetries: 2,
         ...(temperature !== undefined ? { temperature } : {}),
       });
+      this.recordUsage(result.usage.inputTokens ?? 0, result.usage.outputTokens ?? 0);
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateVisionText failed:", error);
@@ -836,6 +854,13 @@ export class LLMClient {
     });
 
     await this.processStream(result.textStream, messageId);
+
+    try {
+      const usage = await result.usage;
+      this.recordUsage(usage.inputTokens ?? 0, usage.outputTokens ?? 0);
+    } catch (error) {
+      console.error("[LLMClient] Failed to read stream usage:", error);
+    }
   }
 
   private async processStream(

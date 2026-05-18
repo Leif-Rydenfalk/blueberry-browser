@@ -184,6 +184,25 @@ const sidebarAPI = {
   removeWorkflowStepCapturedListener: () => {
     electronAPI.ipcRenderer.removeAllListeners("workflow:step-captured");
   },
+
+  getTokenUsage: () =>
+    electronAPI.ipcRenderer.invoke("sidebar-get-token-usage"),
+
+  onTokenUsageUpdated: (
+    callback: (totals: {
+      inputTokens: number;
+      outputTokens: number;
+      totalTokens: number;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("token-usage-updated", (_, totals) =>
+      callback(totals),
+    );
+  },
+
+  removeTokenUsageUpdatedListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("token-usage-updated");
+  },
 };
 
 if (process.contextIsolated) {

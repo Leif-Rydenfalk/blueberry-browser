@@ -167,6 +167,15 @@ const AgentStepMessage: React.FC<{
   </div>
 );
 
+interface TokenUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
+const formatTokens = (n: number): string =>
+  n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+
 export const AgentPanel: React.FC = () => {
   const {
     messages,
@@ -186,6 +195,7 @@ export const AgentPanel: React.FC = () => {
     null,
   );
   const [modelError, setModelError] = useState<string | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -208,6 +218,16 @@ export const AgentPanel: React.FC = () => {
     };
 
     loadModelSettings();
+  }, []);
+
+  useEffect(() => {
+    const loadUsage = async () => {
+      const usage = await window.sidebarAPI.getTokenUsage();
+      if (usage) setTokenUsage(usage);
+    };
+    loadUsage();
+    window.sidebarAPI.onTokenUsageUpdated(setTokenUsage);
+    return () => window.sidebarAPI.removeTokenUsageUpdatedListener();
   }, []);
 
   const toggleStep = (stepId: string) => {
@@ -437,6 +457,15 @@ export const AgentPanel: React.FC = () => {
             <Send className="size-4" />
           </button>
         </div>
+        {tokenUsage && tokenUsage.totalTokens > 0 && (
+          <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground/50 select-none">
+            <span title="Input tokens">↑ {formatTokens(tokenUsage.inputTokens)}</span>
+            <span className="text-muted-foreground/30">·</span>
+            <span title="Output tokens">↓ {formatTokens(tokenUsage.outputTokens)}</span>
+            <span className="text-muted-foreground/30">·</span>
+            <span>{formatTokens(tokenUsage.totalTokens)} tokens</span>
+          </div>
+        )}
       </div>
     </div>
   );

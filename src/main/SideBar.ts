@@ -2,6 +2,7 @@ import { is } from "@electron-toolkit/utils";
 import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
 import { LLMClient } from "./LLMClient";
+import { TokenUsageStore } from "./TokenUsageStore";
 
 export class SideBar {
   private webContentsView: WebContentsView;
@@ -15,8 +16,8 @@ export class SideBar {
     baseWindow.contentView.addChildView(this.webContentsView);
     this.setupBounds();
 
-    // Initialize LLM client
     this.llmClient = new LLMClient(this.webContentsView.webContents);
+    this.llmClient.setUsageStore(new TokenUsageStore());
   }
 
   private createWebContentsView(): WebContentsView {

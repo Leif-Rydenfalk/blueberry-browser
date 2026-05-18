@@ -82,6 +82,12 @@ interface ModelSelection extends ModelOption {
   readonly configured: boolean;
 }
 
+interface TokenUsageTotals {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
 interface TabInfo {
   id: string;
   title: string;
@@ -137,6 +143,9 @@ interface SidebarAPI {
   removeWorkflowRecordingUpdateListener: () => void;
   onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => void;
   removeWorkflowStepCapturedListener: () => void;
+  getTokenUsage: () => Promise<TokenUsageTotals | null>;
+  onTokenUsageUpdated: (callback: (totals: TokenUsageTotals) => void) => void;
+  removeTokenUsageUpdatedListener: () => void;
 }
 
 declare global {

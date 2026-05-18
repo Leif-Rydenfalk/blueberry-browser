@@ -278,6 +278,10 @@ export class EventManager {
         );
       },
     );
+
+    ipcMain.handle("sidebar-get-token-usage", () => {
+      return this.mainWindow.sidebar.client.getTokenUsage();
+    });
   }
 
   private handlePageContentEvents(): void {
