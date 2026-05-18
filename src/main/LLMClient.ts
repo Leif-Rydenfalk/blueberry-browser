@@ -30,18 +30,10 @@ export interface ModelSelection extends ModelOption {
   readonly configured: boolean;
 }
 
-const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
-  anthropic: "claude-3-5-sonnet-20241022",
-};
-
-const MODEL_OPTIONS: readonly ModelOption[] = [
-  { provider: "openai", model: "gpt-4o-mini", label: "OpenAI · GPT-4o mini" },
-  { provider: "anthropic", model: "claude-3-5-sonnet-20241022", label: "Claude · Sonnet 3.5" },
-];
-
 const MAX_CONTEXT_LENGTH = 4000;
 const DEFAULT_TEMPERATURE = 0.7;
+const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+const ANTHROPIC_VERSION = "2023-06-01";
 
 export class LLMClient {
   private readonly webContents: WebContents;
@@ -50,6 +42,8 @@ export class LLMClient {
   private modelName: string;
   public model: LanguageModel | null;
   private messages: CoreMessage[] = [];
+  private modelOptions: ModelOption[] | null = null;
+  private modelOptionsFetchedAt = 0;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -70,12 +64,12 @@ export class LLMClient {
   }
 
   private getModelName(): string {
-    return process.env.LLM_MODEL || DEFAULT_MODELS[this.provider];
+    return process.env.LLM_MODEL || "";
   }
 
   private initializeModel(provider: LLMProvider, modelName: string): LanguageModel | null {
     const apiKey = this.getApiKey(provider);
-    if (!apiKey) return null;
+    if (!apiKey || !modelName) return null;
 
     switch (provider) {
       case "anthropic":
@@ -98,30 +92,52 @@ export class LLMClient {
     }
   }
 
-  getModelOptions(): readonly ModelOption[] {
-    const currentOption = MODEL_OPTIONS.some(
-      option => option.provider === this.provider && option.model === this.modelName
-    )
-      ? []
-      : [{ provider: this.provider, model: this.modelName, label: `${this.getProviderLabel(this.provider)} · ${this.modelName}` }];
+  async getModelOptions(forceRefresh = false): Promise<readonly ModelOption[]> {
+    const now = Date.now();
+    if (!forceRefresh && this.modelOptions && now - this.modelOptionsFetchedAt < MODEL_CACHE_TTL_MS) {
+      return this.withCurrentModelOption(this.modelOptions);
+    }
 
-    return [...currentOption, ...MODEL_OPTIONS];
+    const results = await Promise.all([
+      this.fetchOpenAIModels(),
+      this.fetchAnthropicModels(),
+    ]);
+
+    this.modelOptions = results.flat();
+    this.modelOptionsFetchedAt = now;
+
+    if (!this.model && this.modelOptions.length > 0) {
+      const preferred = this.selectPreferredModel(this.modelOptions, this.provider) || this.modelOptions[0];
+      this.applyModelSelection(preferred.provider, preferred.model);
+    }
+
+    return this.withCurrentModelOption(this.modelOptions);
   }
 
-  getModelSelection(): ModelSelection {
-    const option = this.getModelOptions().find(
+  async getModelSelection(): Promise<ModelSelection> {
+    if (!this.model) {
+      await this.getModelOptions();
+    }
+
+    const options = await this.getModelOptions();
+    const option = options.find(
       candidate => candidate.provider === this.provider && candidate.model === this.modelName
     );
 
     return {
       provider: this.provider,
       model: this.modelName,
-      label: option?.label || `${this.getProviderLabel(this.provider)} · ${this.modelName}`,
+      label: option?.label || this.getModelLabel(this.provider, this.modelName),
       configured: Boolean(this.model),
     };
   }
 
-  setModelSelection(provider: LLMProvider, modelName: string): ModelSelection {
+  async setModelSelection(provider: LLMProvider, modelName: string): Promise<ModelSelection> {
+    this.applyModelSelection(provider, modelName);
+    return this.getModelSelection();
+  }
+
+  private applyModelSelection(provider: LLMProvider, modelName: string): void {
     const nextModel = this.initializeModel(provider, modelName);
     if (!nextModel) {
       const keyName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
@@ -132,11 +148,161 @@ export class LLMClient {
     this.modelName = modelName;
     this.model = nextModel;
     this.logInitializationStatus();
-    return this.getModelSelection();
   }
 
   private getProviderLabel(provider: LLMProvider): string {
     return provider === "anthropic" ? "Claude" : "OpenAI";
+  }
+
+  private getModelLabel(provider: LLMProvider, modelName: string): string {
+    return modelName ? `${this.getProviderLabel(provider)} · ${modelName}` : `${this.getProviderLabel(provider)} · No model selected`;
+  }
+
+  private withCurrentModelOption(options: readonly ModelOption[]): readonly ModelOption[] {
+    if (!this.modelName) return options;
+    if (options.some(option => option.provider === this.provider && option.model === this.modelName)) {
+      return options;
+    }
+
+    return [
+      { provider: this.provider, model: this.modelName, label: this.getModelLabel(this.provider, this.modelName) },
+      ...options,
+    ];
+  }
+
+  private async fetchOpenAIModels(): Promise<ModelOption[]> {
+    const apiKey = this.getApiKey("openai");
+    if (!apiKey) return [];
+
+    try {
+      const response = await fetch("https://api.openai.com/v1/models", {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      });
+      if (!response.ok) {
+        console.error(`[LLMClient] OpenAI model list failed: ${response.status} ${response.statusText}`);
+        return [];
+      }
+
+      const payload = await response.json() as { data?: Array<{ id: string; created?: number }> };
+      return (payload.data || [])
+        .filter(model => this.isOpenAIGenerationModel(model.id))
+        .sort((a, b) => this.compareOpenAIModels(a, b))
+        .map(model => ({
+          provider: "openai" as const,
+          model: model.id,
+          label: `OpenAI · ${model.id}`,
+        }));
+    } catch (error) {
+      console.error("[LLMClient] OpenAI model list failed:", error);
+      return [];
+    }
+  }
+
+  private async fetchAnthropicModels(): Promise<ModelOption[]> {
+    const apiKey = this.getApiKey("anthropic");
+    if (!apiKey) return [];
+
+    try {
+      const response = await fetch("https://api.anthropic.com/v1/models", {
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+        },
+      });
+      if (!response.ok) {
+        console.error(`[LLMClient] Anthropic model list failed: ${response.status} ${response.statusText}`);
+        return [];
+      }
+
+      const payload = await response.json() as { data?: Array<{ id: string; display_name?: string; created_at?: string }> };
+      return (payload.data || [])
+        .filter(model => model.id.toLowerCase().includes("claude"))
+        .sort((a, b) => this.compareAnthropicModels(a, b))
+        .map(model => ({
+          provider: "anthropic" as const,
+          model: model.id,
+          label: `Claude · ${model.display_name || model.id}`,
+        }));
+    } catch (error) {
+      console.error("[LLMClient] Anthropic model list failed:", error);
+      return [];
+    }
+  }
+
+  private isOpenAIGenerationModel(modelId: string): boolean {
+    const id = modelId.toLowerCase();
+    if (!id.startsWith("gpt-") && !/^o\d/.test(id)) return false;
+
+    const excludedTerms = [
+      "audio",
+      "realtime",
+      "transcribe",
+      "tts",
+      "whisper",
+      "embedding",
+      "moderation",
+      "image",
+      "search-preview",
+    ];
+    return !excludedTerms.some(term => id.includes(term));
+  }
+
+  private compareOpenAIModels(
+    a: { id: string; created?: number },
+    b: { id: string; created?: number }
+  ): number {
+    const scoreDiff = this.scoreOpenAIModel(b.id) - this.scoreOpenAIModel(a.id);
+    if (scoreDiff !== 0) return scoreDiff;
+    return (b.created || 0) - (a.created || 0);
+  }
+
+  private scoreOpenAIModel(modelId: string): number {
+    const id = modelId.toLowerCase();
+    let score = id.startsWith("gpt-") ? 10000 : 5000;
+    score += this.extractOpenAIModelVersion(id) * 100;
+    if (id.includes("mini")) score -= 40;
+    if (id.includes("nano")) score -= 60;
+    if (id.includes("preview")) score -= 10;
+    return score;
+  }
+
+  private compareAnthropicModels(
+    a: { id: string; created_at?: string },
+    b: { id: string; created_at?: string }
+  ): number {
+    const scoreDiff = this.scoreAnthropicModel(b.id) - this.scoreAnthropicModel(a.id);
+    if (scoreDiff !== 0) return scoreDiff;
+    return Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
+  }
+
+  private scoreAnthropicModel(modelId: string): number {
+    const id = modelId.toLowerCase();
+    let score = this.extractAnthropicModelVersion(id) * 100;
+    if (id.includes("opus")) score += 50;
+    if (id.includes("sonnet")) score += 30;
+    if (id.includes("haiku")) score += 10;
+    return score;
+  }
+
+  private selectPreferredModel(options: readonly ModelOption[], provider: LLMProvider): ModelOption | null {
+    return options.find(option => option.provider === provider) || options[0] || null;
+  }
+
+  private extractOpenAIModelVersion(value: string): number {
+    const match = value.match(/(?:gpt-|^o)(\d+(?:[-.]\d+)?)/);
+    if (!match) return 0;
+    return this.parseModelVersion(match[1]);
+  }
+
+  private extractAnthropicModelVersion(value: string): number {
+    const match = value.match(/claude-[a-z]+-(\d+(?:[-.]\d+)?)/);
+    if (!match) return 0;
+    return this.parseModelVersion(match[1]);
+  }
+
+  private parseModelVersion(value: string): number {
+    const numeric = Number(value.replace("-", "."));
+    return Number.isFinite(numeric) ? numeric : 0;
   }
 
   private logInitializationStatus(): void {
@@ -190,9 +356,13 @@ export class LLMClient {
       this.sendMessagesToRenderer();
 
       if (!this.model) {
+        await this.getModelOptions();
+      }
+
+      if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
-          "LLM service is not configured. Please add your API key to the .env file."
+          "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file."
         );
         return;
       }
@@ -206,7 +376,10 @@ export class LLMClient {
   }
 
   async generateText(prompt: string, temperature?: number): Promise<string | null> {
-    if (!this.model) return null;
+    if (!this.model) {
+      await this.getModelOptions();
+    }
+    if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
     try {
       const options: any = {
         model: this.model,
@@ -226,7 +399,10 @@ export class LLMClient {
   }
 
   async generateVisionText(prompt: string, imageBase64: string, temperature?: number): Promise<string | null> {
-    if (!this.model) return null;
+    if (!this.model) {
+      await this.getModelOptions();
+    }
+    if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
     try {
       const messages: any[] = [
         {
@@ -330,6 +506,10 @@ export class LLMClient {
     messages: CoreMessage[],
     messageId: string
   ): Promise<void> {
+    if (!this.model) {
+      await this.getModelOptions();
+    }
+
     if (!this.model) {
       throw new Error("Model not initialized");
     }
