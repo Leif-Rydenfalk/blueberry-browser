@@ -2,40 +2,48 @@ import type { AgentContext, AgentAction } from "../types/AgentTypes";
 
 export function buildReActPrompt(context: AgentContext): string {
   const { goal, history, currentUrl, pageText } = context;
-  const historyText = history.length > 0
-    ? history.map((step, i) => {
+
+  // Only keep last 5 steps to save tokens
+  const recentHistory = history.slice(-5);
+
+  const historyText = recentHistory.length > 0
+    ? recentHistory.map((step, i) => {
       const resultStr = step.result.success
-        ? `Success: ${JSON.stringify(step.result.data).substring(0, 200)}`
-        : `Error: ${step.result.error}`;
-      return `Step ${i + 1}:\nAction: ${JSON.stringify(step.action)}\nResult: ${resultStr}`;
-    }).join("\\n\\n")
-    : "No previous actions taken.";
-  // Much shorter page context - only first 1500 chars
+        ? `${JSON.stringify(step.result.data).substring(0, 100)}`
+        : `Error: ${step.result.error.substring(0, 100)}`;
+      return `${i + 1}. ${step.action.type}: ${resultStr}`;
+    }).join("\n")
+    : "No previous actions.";
+
   const pageContext = pageText
     ? `\nPage text:\n${pageText.substring(0, 1500)}${pageText.length > 1500 ? "..." : ""}`
     : "";
-  return `You are a browser automation agent called Blueberry AI. You control a web browser to achieve user goals.
-Your task: ${goal}
-Current page URL: ${currentUrl || "unknown"}${pageContext}
-Previous actions:
+
+  return `You are Blueberry AI, a browser automation agent. Be concise and efficient.
+
+Task: ${goal}
+URL: ${currentUrl || "unknown"}${pageContext}
+
+Recent actions:
 ${historyText}
-Available actions (respond with JSON only):
-- navigate: { "type": "navigate", "params": { "url": "..." }, "reasoning": "..." }
-- click: { "type": "click", "params": { "selector": "css-selector" }, "reasoning": "..." }
-- type: { "type": "type", "params": { "selector": "css-selector", "text": "...", "clearFirst": true }, "reasoning": "..." }
-- scroll: { "type": "scroll", "params": { "direction": "down", "amount": 500 }, "reasoning": "..." }
-- extract: { "type": "extract", "params": { "selector": "css-selector", "attribute": "text", "name": "resultName" }, "reasoning": "..." }
-- screenshot: { "type": "screenshot", "params": {}, "reasoning": "Need to see current state" }
-- finish: { "type": "finish", "params": { "answer": "..." }, "reasoning": "Task is complete" }
+
+Available actions (JSON only):
+- navigate: {"type":"navigate","params":{"url":"..."},"reasoning":"..."}
+- click: {"type":"click","params":{"selector":"css-selector"},"reasoning":"..."}
+- type: {"type":"type","params":{"selector":"css-selector","text":"...","clearFirst":true},"reasoning":"..."}
+- scroll: {"type":"scroll","params":{"direction":"down","amount":500},"reasoning":"..."}
+- extract: {"type":"extract","params":{"selector":"css-selector","attribute":"text","name":"key"},"reasoning":"..."}
+- finish: {"type":"finish","params":{"answer":"..."},"reasoning":"..."}
+
 CRITICAL RULES:
-1. Respond with EXACTLY ONE valid JSON object. No markdown, no explanation outside JSON.
-2. Use CSS selectors that are specific and stable. Prefer IDs and data attributes.
-3. If you need to see the page, use screenshot first.
-4. If an action fails, try a different approach — maybe scroll to find the element.
-5. When typing in search boxes, always submit the form or press Enter after typing.
-6. Extract information only when you have found what the user is looking for.
-7. The finish action should include a concise answer to the user's goal.
-Respond now with your next action:`;
+1. ONE JSON object only. No markdown outside JSON.
+2. If extract fails (CSP/security error), use finish and describe what you observed from the page URL and any previous successful extracts.
+3. NEVER request screenshot — I automatically capture the page after every action.
+4. If stuck after 2 failed actions, use finish with your best answer.
+5. Keep reasoning under 80 chars.
+6. finish MUST include a helpful answer to the user's goal.
+
+Respond with your next action:`;
 }
 
 export function buildSystemPrompt(): string {

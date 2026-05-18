@@ -51,6 +51,7 @@ export class AgentRunner {
     this.abortController = new AbortController();
 
     try {
+      let consecutiveErrors = 0;
       for (let stepNum = 0; stepNum < this.config.maxSteps; stepNum++) {
         if (this.abortController.signal.aborted) {
           console.log("[AgentRunner] Aborted by user");
@@ -124,6 +125,24 @@ export class AgentRunner {
         if (action.type === "finish") {
           console.log("[AgentRunner] Task completed");
           break;
+        }
+
+        // Force finish if stuck in error loop
+        if (!result.success) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            console.log("[AgentRunner] Too many errors, forcing finish");
+            this.emitUpdate({
+              step: stepNum + 1,
+              totalSteps: this.config.maxSteps,
+              action: { type: "finish", params: { answer: "I encountered repeated errors (likely due to page security restrictions). Here's what I observed: " + JSON.stringify(this.steps.map(s => s.action.type + ":" + (s.result.success ? "ok" : "fail"))) }, reasoning: "Forced finish due to errors" },
+              status: "success",
+              sessionId: "",
+            });
+            break;
+          }
+        } else {
+          consecutiveErrors = 0;
         }
 
         await this.sleep(500);

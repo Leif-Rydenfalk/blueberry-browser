@@ -148,25 +148,35 @@ export class ActionExecutor {
   }
 
   private async executeExtract(tab: Tab, params: { selector: string; attribute?: string; name: string }): Promise<ActionResult> {
-    const attr = params.attribute || 'text';
-    const code = `
-      (function() {
-        const elements = document.querySelectorAll(${JSON.stringify(params.selector)});
-        if (elements.length === 0) return { error: "No elements found" };
-        const results = Array.from(elements).map(el => {
-          if (${JSON.stringify(attr)} === 'text') return el.textContent?.trim();
-          if (${JSON.stringify(attr)} === 'html') return el.innerHTML;
-          if (${JSON.stringify(attr)} === 'value') return el.value;
-          return el.getAttribute(${JSON.stringify(attr)});
-        }).filter(Boolean);
-        return { count: elements.length, data: results.length === 1 ? results[0] : results };
-      })()
-    `;
-    const result = await tab.runJs(code);
-    if (result && result.error) {
-      return { success: false, error: result.error, recoverable: true };
+    try {
+      const attr = params.attribute || 'text';
+      const code = `
+        (function() {
+          try {
+            const elements = document.querySelectorAll(${JSON.stringify(params.selector)});
+            if (elements.length === 0) return { error: "No elements found", count: 0 };
+            const results = Array.from(elements).map(el => {
+              if (${JSON.stringify(attr)} === 'text') return el.textContent?.trim();
+              if (${JSON.stringify(attr)} === 'html') return el.innerHTML;
+              if (${JSON.stringify(attr)} === 'value') return el.value;
+              return el.getAttribute(${JSON.stringify(attr)});
+            }).filter(Boolean);
+            return { success: true, count: elements.length, data: results.length === 1 ? results[0] : results };
+          } catch (e) {
+            return { error: e.message || "CSP blocked script execution" };
+          }
+        })()
+      `;
+      const result = await tab.runJs(code);
+      if (result && result.error) {
+        return { success: false, error: result.error, recoverable: true };
+      }
+      return { success: true, data: { [params.name]: result.data } };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Script execution blocked";
+      console.error("[ActionExecutor] Extract failed:", msg);
+      return { success: false, error: msg + " (page may have CSP)", recoverable: true };
     }
-    return { success: true, data: { [params.name]: result.data } };
   }
 
   private isRecoverable(type: ActionType, error: string): boolean {

@@ -277,6 +277,19 @@ export const AgentPanel: React.FC = () => {
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Show final answer if task completed */}
+      {steps.length > 0 && steps[steps.length - 1].action.type === 'finish' && (
+        <div className="mx-4 mb-4 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle2 className="size-4 text-green-500" />
+            <span className="text-sm font-semibold text-green-700 dark:text-green-400">Task Complete</span>
+          </div>
+          <p className="text-sm text-foreground">
+            {(steps[steps.length - 1].action.params as any)?.answer || "Task finished"}
+          </p>
+        </div>
+      )}
+
       {/* Input */}
       <div className="p-3 border-t border-border/50 bg-background/80 backdrop-blur-sm">
         <div className="relative flex items-end gap-2 bg-secondary/60 dark:bg-secondary/30 rounded-2xl px-3 py-2 border border-border/40 focus-within:border-primary/30 focus-within:ring-1 focus-within:ring-primary/20 transition-all">
