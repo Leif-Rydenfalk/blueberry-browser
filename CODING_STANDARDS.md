@@ -322,7 +322,28 @@ No `console.log` in production paths. No debug dumps. Format: `[ClassName] verb 
 
 ---
 
-## 13. Checklist (new feature)
+## 13. How to see editor-equivalent type errors
+
+`npm run typecheck` already runs both configs, but if you want to match exactly what VS Code shows:
+
+```bash
+# Node/main process types (main + preload)
+npx tsc --noEmit -p tsconfig.node.json
+
+# Web/renderer types (React components)
+npx tsc --noEmit -p tsconfig.web.json
+```
+
+The root `tsconfig.json` has `"files": []` — it only references the two above. ESLint errors visible in the editor come from `.eslintrc.cjs`. Run both to get the full picture:
+
+```bash
+npm run typecheck
+npx eslint src --ext .ts,.tsx --max-warnings 0
+```
+
+---
+
+## 14. Checklist (new feature)
 
 - [ ] `strict: true` — no `any` without justification
 - [ ] All public methods have explicit return types
