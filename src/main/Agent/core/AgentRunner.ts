@@ -18,6 +18,7 @@ export class AgentRunner {
   private isPaused = false;
   private abortController: AbortController | null = null;
   private pendingUserMessage: string | null = null;
+  private workingMemory: string[] = [];
   private onUpdate: ((update: AgentStreamUpdate) => void) | null = null;
   private onComplete: ((steps: AgentStep[]) => void) | null = null;
   private onError: ((error: string) => void) | null = null;
@@ -45,6 +46,7 @@ export class AgentRunner {
 
     this.isRunning = true;
     this.steps = [];
+    this.workingMemory = [];
     this.abortController = new AbortController();
 
     try {
@@ -74,6 +76,7 @@ export class AgentRunner {
         // Check for user message - integrate into context
         if (this.pendingUserMessage) {
           goal = `${goal}\n\nUser says: ${this.pendingUserMessage}`;
+          this.remember(`User update: ${this.pendingUserMessage}`);
           this.pendingUserMessage = null;
         }
 
@@ -82,7 +85,10 @@ export class AgentRunner {
           await this.sleep(200);
         }
 
-        const context = await this.strategy.getActiveContext(goal, this.steps);
+        const context = {
+          ...await this.strategy.getActiveContext(goal, this.steps),
+          memory: this.buildWorkingMemory(),
+        };
 
         this.emitUpdate({
           step: stepNum,
@@ -92,15 +98,12 @@ export class AgentRunner {
           sessionId: "",
         });
 
-        // Capture screenshot for vision
-        const screenshot = await this.strategy.captureScreenshot();
-
         // Build prompt with image if available
         const basePrompt = buildReActPrompt(context);
 
         let responseText: string | null;
-        if (screenshot) {
-          responseText = await this.llmClient.generateVisionText(basePrompt, screenshot);
+        if (context.screenshot) {
+          responseText = await this.llmClient.generateVisionText(basePrompt, context.screenshot);
         } else {
           responseText = await this.llmClient.generateText(basePrompt);
         }
@@ -125,6 +128,7 @@ export class AgentRunner {
 
         const result = await this.strategy.executeAction(action);
         const afterScreenshot = await this.strategy.captureScreenshot();
+        this.updateWorkingMemory(action, result);
 
         const step: AgentStep = {
           id: uuidv4(),
@@ -141,7 +145,7 @@ export class AgentRunner {
           action,
           status: result.success ? "success" : "error",
           result,
-          screenshot: screenshot || undefined,
+          screenshot: afterScreenshot || context.screenshot || undefined,
           sessionId: "",
         });
 
@@ -240,6 +244,57 @@ export class AgentRunner {
 
   private emitUpdate(update: AgentStreamUpdate): void {
     this.onUpdate?.(update);
+  }
+
+  private updateWorkingMemory(action: AgentAction, result: import("../types/AgentTypes").ActionResult): void {
+    if (action.type === "finish") {
+      const answer = (action.params as { answer?: string }).answer;
+      if (answer) this.remember(`Final answer drafted: ${answer}`);
+      return;
+    }
+
+    if (!result.success) {
+      this.remember(`Failed ${action.type}: ${result.error}`);
+      return;
+    }
+
+    if (action.type === "navigate") {
+      const url = (action.params as { url?: string }).url;
+      if (url) this.remember(`Navigated to ${url}`);
+      return;
+    }
+
+    if (action.type === "extract") {
+      this.remember(`Extracted ${this.compact(result.data, 260)}`);
+      return;
+    }
+
+    if (action.type === "click" || action.type === "type" || action.type === "scroll") {
+      this.remember(`${action.type} succeeded: ${this.compact(action.params, 180)}`);
+    }
+  }
+
+  private remember(entry: string): void {
+    const compactEntry = entry.replace(/\s+/g, " ").trim();
+    if (!compactEntry) return;
+
+    const lastEntry = this.workingMemory[this.workingMemory.length - 1];
+    if (lastEntry === compactEntry) return;
+
+    this.workingMemory.push(compactEntry);
+    if (this.workingMemory.length > 12) {
+      this.workingMemory = this.workingMemory.slice(-12);
+    }
+  }
+
+  private buildWorkingMemory(): string {
+    return this.workingMemory.map((entry, index) => `${index + 1}. ${entry}`).join("\n");
+  }
+
+  private compact(value: unknown, maxLength: number): string {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    if (!text) return "";
+    return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
   }
 
   private sleep(ms: number): Promise<void> {

@@ -20,7 +20,7 @@ export class ActionExecutor {
         case "navigate":
           return await this.executeNavigate(tab, action.params as { url: string });
         case "click":
-          return await this.executeClick(tab, action.params as { selector: string; x?: number; y?: number });
+          return await this.executeClick(tab, action.params as { selector?: string; x?: number; y?: number });
         case "type":
           return await this.executeType(tab, action.params as { selector: string; text: string; clearFirst?: boolean });
         case "scroll":
@@ -29,15 +29,16 @@ export class ActionExecutor {
           return await this.executeWait(action.params as { duration?: number });
         case "extract":
           return await this.executeExtract(tab, action.params as { selector: string; attribute?: string; name: string });
-        case "screenshot":
+        case "screenshot": {
           const image = await tab.screenshot();
           return { success: true, data: { screenshot: image.toDataURL() } };
+        }
         case "finish":
           return { success: true, data: { completed: true, answer: (action.params as { answer?: string }).answer } };
         default:
           return {
             success: false,
-            error: `Unknown action type: ${(action as any).type}`,
+            error: `Unknown action type: ${(action as { type?: string }).type}`,
             recoverable: true,
           };
       }
@@ -58,16 +59,24 @@ export class ActionExecutor {
     return { success: true, data: { url: params.url } };
   }
 
-  private async executeClick(tab: Tab, params: { selector: string; x?: number; y?: number }): Promise<ActionResult> {
+  private async executeClick(tab: Tab, params: { selector?: string; x?: number; y?: number }): Promise<ActionResult> {
     // For TikTok and CSP sites, use native click with coordinates
     if (params.x !== undefined && params.y !== undefined) {
       try {
         await this.nativeClick(tab, params.x, params.y);
         await this.sleep(300);
         return { success: true, data: { method: 'native', x: params.x, y: params.y } };
-      } catch (e) {
+      } catch {
         console.log("[ActionExecutor] Native click failed, trying JS fallback");
       }
+    }
+
+    if (!params.selector) {
+      return {
+        success: false,
+        error: "Click needs either x/y coordinates or a CSS selector",
+        recoverable: true,
+      };
     }
 
     try {
@@ -107,7 +116,7 @@ export class ActionExecutor {
           await this.nativeClick(tab, params.x, params.y);
           await this.sleep(500);
           return { success: true, data: { method: 'native_fallback', x: params.x, y: params.y } };
-        } catch (nativeError) {
+        } catch {
           return { success: false, error: "Native click also failed", recoverable: false };
         }
       }
@@ -170,7 +179,11 @@ export class ActionExecutor {
     } else {
       const direction = params.direction === 'up' ? -1 : 1;
       const amount = params.amount || 500;
-      await tab.runJs(`window.scrollBy({ top: ${direction * amount}, behavior: 'smooth' });`);
+      try {
+        await tab.runJs(`window.scrollBy({ top: ${direction * amount}, behavior: 'smooth' });`);
+      } catch {
+        await this.nativeScroll(tab, direction * amount);
+      }
     }
     await this.sleep(800);
     return { success: true, data: { direction: params.direction, amount: params.amount || 500 } };
@@ -235,11 +248,11 @@ export class ActionExecutor {
   }
 
   async nativeScroll(tab: Tab, deltaY: number): Promise<void> {
-    const wc = (tab as any).webContentsView?.webContents || (tab as any).webContents;
+    const wc = tab.nativeWebContents;
     if (!wc) throw new Error("No webContents available");
 
     // Scroll at center of viewport
-    const bounds = wc.getOwnerBrowserWindow()?.getBounds() || { width: 1280, height: 800 };
+    const bounds = tab.view.getBounds();
     wc.sendInputEvent({
       type: 'mouseWheel',
       x: bounds.width / 2,
@@ -250,7 +263,7 @@ export class ActionExecutor {
   }
 
   async nativeType(tab: Tab, text: string): Promise<void> {
-    const wc = (tab as any).webContentsView?.webContents || (tab as any).webContents;
+    const wc = tab.nativeWebContents;
     if (!wc) throw new Error("No webContents available");
 
     for (const char of text) {

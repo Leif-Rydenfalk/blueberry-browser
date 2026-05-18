@@ -1,5 +1,5 @@
 import { WebContents } from "electron";
-import { streamText, generateText, type LanguageModel, type CoreMessage } from "ai";
+import { streamText, generateText as generateAIText, type LanguageModel, type CoreMessage } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
@@ -30,7 +30,13 @@ export interface ModelSelection extends ModelOption {
   readonly configured: boolean;
 }
 
-const MAX_CONTEXT_LENGTH = 4000;
+const MAX_PAGE_CONTEXT_LENGTH = 6500;
+const MAX_PAGE_EXCERPT_LENGTH = 4200;
+const MAX_RECENT_CHAT_MESSAGES = 8;
+const MAX_MESSAGE_TEXT_LENGTH = 2400;
+const COMPACT_AFTER_MESSAGE_COUNT = 12;
+const CONVERSATION_SUMMARY_MAX_LENGTH = 2200;
+const SUMMARY_SOURCE_MAX_LENGTH = 12000;
 const DEFAULT_TEMPERATURE = 0.7;
 const MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -42,6 +48,8 @@ export class LLMClient {
   private modelName: string;
   public model: LanguageModel | null;
   private messages: CoreMessage[] = [];
+  private conversationSummary = "";
+  private summarizedMessageCount = 0;
   private modelOptions: ModelOption[] | null = null;
   private modelOptionsFetchedAt = 0;
 
@@ -335,21 +343,9 @@ export class LLMClient {
         }
       }
 
-      const userContent: any[] = [];
-      if (screenshot) {
-        userContent.push({
-          type: "image",
-          image: screenshot,
-        });
-      }
-      userContent.push({
-        type: "text",
-        text: request.message,
-      });
-
       const userMessage: CoreMessage = {
         role: "user",
-        content: userContent.length === 1 ? request.message : userContent,
+        content: request.message,
       };
 
       this.messages.push(userMessage);
@@ -367,7 +363,9 @@ export class LLMClient {
         return;
       }
 
-      const messages = await this.prepareMessagesWithContext(request);
+      await this.updateConversationSummary();
+
+      const messages = await this.prepareMessagesWithContext(request, screenshot);
       await this.streamResponse(messages, request.messageId);
     } catch (error) {
       console.error("Error in LLM request:", error);
@@ -381,16 +379,13 @@ export class LLMClient {
     }
     if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
     try {
-      const options: any = {
+      const result = await generateAIText({
         model: this.model,
         prompt,
         system: "You are a browser automation agent. Respond with JSON only.",
         maxRetries: 2,
-      };
-      if (temperature !== undefined) {
-        options.temperature = temperature;
-      }
-      const result = await generateText(options);
+        ...(temperature !== undefined ? { temperature } : {}),
+      });
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateText failed:", error);
@@ -404,7 +399,7 @@ export class LLMClient {
     }
     if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
     try {
-      const messages: any[] = [
+      const messages = [
         {
           role: "user",
           content: [
@@ -412,18 +407,14 @@ export class LLMClient {
             { type: "image", image: imageBase64 },
           ],
         },
-      ];
+      ] as CoreMessage[];
 
-      const options: any = {
+      const result = await generateAIText({
         model: this.model,
         messages,
         maxRetries: 2,
-      };
-      if (temperature !== undefined) {
-        options.temperature = temperature;
-      }
-
-      const result = await generateText(options);
+        ...(temperature !== undefined ? { temperature } : {}),
+      });
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateVisionText failed:", error);
@@ -438,6 +429,8 @@ export class LLMClient {
 
   clearMessages(): void {
     this.messages = [];
+    this.conversationSummary = "";
+    this.summarizedMessageCount = 0;
     this.sendMessagesToRenderer();
   }
 
@@ -449,7 +442,10 @@ export class LLMClient {
     this.webContents.send("chat-messages-updated", this.messages);
   }
 
-  private async prepareMessagesWithContext(_request: ChatRequest): Promise<CoreMessage[]> {
+  private async prepareMessagesWithContext(
+    request: ChatRequest,
+    screenshot: string | null
+  ): Promise<CoreMessage[]> {
     let pageUrl: string | null = null;
     let pageText: string | null = null;
 
@@ -465,28 +461,34 @@ export class LLMClient {
       }
     }
 
-    const systemContent = this.buildSystemPrompt(pageUrl, pageText);
+    const systemContent = this.buildSystemPrompt(pageUrl, pageText, request.message);
+    const requestMessages = this.buildModelFacingMessages(screenshot);
 
     return [
       { role: "system", content: systemContent },
-      ...this.messages
+      ...requestMessages
     ];
   }
 
-  private buildSystemPrompt(url: string | null, pageText: string | null): string {
+  private buildSystemPrompt(url: string | null, pageText: string | null, userMessage: string): string {
     const parts: string[] = [
       "You are a helpful AI assistant integrated into a web browser.",
       "You can analyze and discuss web pages with the user.",
-      "The user's messages may include screenshots of the current page as the first image.",
+      "The latest user message may include one current-page screenshot.",
+      "Use the conversation memory for durable context, and the recent messages for exact wording.",
     ];
 
     if (url) {
       parts.push(`\nCurrent page URL: ${url}`);
     }
 
+    if (this.conversationSummary) {
+      parts.push(`\nConversation memory:\n${this.conversationSummary}`);
+    }
+
     if (pageText) {
-      const truncatedText = this.truncateText(pageText, MAX_CONTEXT_LENGTH);
-      parts.push(`\nPage content (text):\n${truncatedText}`);
+      const pageContext = this.extractRelevantPageText(pageText, userMessage, MAX_PAGE_EXCERPT_LENGTH);
+      parts.push(`\nRelevant page text:\n${pageContext}`);
     }
 
     parts.push(
@@ -500,6 +502,166 @@ export class LLMClient {
   private truncateText(text: string, maxLength: number): string {
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + "...";
+  }
+
+  private buildModelFacingMessages(screenshot: string | null): CoreMessage[] {
+    const recentMessages = this.messages.slice(-MAX_RECENT_CHAT_MESSAGES);
+    const latestIndex = recentMessages.length - 1;
+
+    return recentMessages.map((message, index) => {
+      const text = this.truncateText(this.getMessageText(message), MAX_MESSAGE_TEXT_LENGTH);
+      const isLatestUserMessage = index === latestIndex && message.role === "user";
+
+      if (isLatestUserMessage && screenshot) {
+        return {
+          role: "user",
+          content: [
+            { type: "image", image: screenshot },
+            { type: "text", text },
+          ],
+        } as CoreMessage;
+      }
+
+      return {
+        role: message.role,
+        content: text,
+      } as CoreMessage;
+    }).filter(message => this.getMessageText(message).trim().length > 0);
+  }
+
+  private async updateConversationSummary(): Promise<void> {
+    if (this.messages.length < COMPACT_AFTER_MESSAGE_COUNT) return;
+
+    const summarizeUntil = Math.max(0, this.messages.length - MAX_RECENT_CHAT_MESSAGES);
+    if (summarizeUntil <= this.summarizedMessageCount) return;
+
+    const sourceMessages = this.messages.slice(this.summarizedMessageCount, summarizeUntil);
+    const sourceText = this.truncateText(this.formatMessagesForSummary(sourceMessages), SUMMARY_SOURCE_MAX_LENGTH);
+    if (!sourceText.trim()) {
+      this.summarizedMessageCount = summarizeUntil;
+      return;
+    }
+
+    if (!this.model) {
+      this.conversationSummary = this.truncateText(
+        [this.conversationSummary, sourceText].filter(Boolean).join("\n"),
+        CONVERSATION_SUMMARY_MAX_LENGTH
+      );
+      this.summarizedMessageCount = summarizeUntil;
+      return;
+    }
+
+    try {
+      const result = await generateAIText({
+        model: this.model,
+        system: "Summarize browser assistant conversation memory. Return concise plain text only.",
+        prompt: [
+          "Update the durable memory using the existing memory and new transcript.",
+          "Keep user preferences, goals, decisions, facts discovered from pages, unresolved tasks, and important constraints.",
+          "Drop greetings, repeated wording, screenshots, and transient progress chatter.",
+          `Keep it under ${CONVERSATION_SUMMARY_MAX_LENGTH} characters.`,
+          "",
+          `Existing memory:\n${this.conversationSummary || "(none)"}`,
+          "",
+          `New transcript:\n${sourceText}`,
+        ].join("\n"),
+        temperature: 0.2,
+        maxRetries: 1,
+      });
+      this.conversationSummary = this.truncateText(result.text.trim(), CONVERSATION_SUMMARY_MAX_LENGTH);
+      this.summarizedMessageCount = summarizeUntil;
+    } catch (error) {
+      console.error("[LLMClient] Conversation summarization failed:", error);
+      const fallback = [this.conversationSummary, sourceText].filter(Boolean).join("\n");
+      this.conversationSummary = this.truncateText(fallback, CONVERSATION_SUMMARY_MAX_LENGTH);
+      this.summarizedMessageCount = summarizeUntil;
+    }
+  }
+
+  private formatMessagesForSummary(messages: readonly CoreMessage[]): string {
+    return messages
+      .map(message => `${message.role}: ${this.truncateText(this.getMessageText(message), 1200)}`)
+      .filter(line => line.trim().length > 0)
+      .join("\n");
+  }
+
+  private getMessageText(message: CoreMessage): string {
+    const content = message.content;
+    if (typeof content === "string") return content;
+    if (!Array.isArray(content)) return "";
+
+    return content
+      .map(part => {
+        if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part) {
+          return String(part.text);
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  private extractRelevantPageText(pageText: string, query: string, maxLength: number): string {
+    const normalized = this.normalizeWhitespace(pageText);
+    if (normalized.length <= maxLength) return normalized;
+
+    const terms = this.getQueryTerms(query);
+    if (terms.length === 0) {
+      return this.truncateText(normalized, Math.min(MAX_PAGE_CONTEXT_LENGTH, maxLength));
+    }
+
+    const paragraphs = normalized
+      .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
+      .map(part => part.trim())
+      .filter(part => part.length > 0);
+
+    const scored = paragraphs
+      .map((paragraph, index) => ({
+        paragraph,
+        index,
+        score: this.scorePageParagraph(paragraph, terms),
+      }))
+      .filter(item => item.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index)
+      .slice(0, 12)
+      .sort((a, b) => a.index - b.index);
+
+    const selected = scored.length > 0
+      ? scored.map(item => item.paragraph).join("\n\n")
+      : normalized;
+
+    return this.truncateText(selected, maxLength);
+  }
+
+  private normalizeWhitespace(text: string): string {
+    return text
+      .replace(/\r/g, "")
+      .replace(/[ \t]+/g, " ")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
+  private getQueryTerms(query: string): string[] {
+    const stopWords = new Set([
+      "about", "after", "again", "also", "and", "any", "are", "can", "could",
+      "for", "from", "have", "how", "into", "please", "show", "tell", "that",
+      "the", "this", "was", "what", "when", "where", "which", "with", "you",
+      "your",
+    ]);
+
+    return Array.from(new Set(
+      query
+        .toLowerCase()
+        .match(/[a-z0-9][a-z0-9-]{2,}/g) || []
+    )).filter(term => !stopWords.has(term));
+  }
+
+  private scorePageParagraph(paragraph: string, terms: readonly string[]): number {
+    const lower = paragraph.toLowerCase();
+    return terms.reduce((score, term) => {
+      const occurrences = lower.split(term).length - 1;
+      return score + occurrences * Math.min(term.length, 12);
+    }, 0);
   }
 
   private async streamResponse(
@@ -517,19 +679,15 @@ export class LLMClient {
     const systemContent = messages[0].role === "system" ? messages[0].content as string : undefined;
     const chatMessages = messages[0].role === "system" ? messages.slice(1) : messages;
 
-    try {
-      const result = await streamText({
-        model: this.model,
-        system: systemContent,
-        messages: chatMessages,
-        temperature: DEFAULT_TEMPERATURE,
-        maxRetries: 3,
-      });
+    const result = await streamText({
+      model: this.model,
+      system: systemContent,
+      messages: chatMessages,
+      temperature: DEFAULT_TEMPERATURE,
+      maxRetries: 3,
+    });
 
-      await this.processStream(result.textStream, messageId);
-    } catch (error) {
-      throw error;
-    }
+    await this.processStream(result.textStream, messageId);
   }
 
   private async processStream(

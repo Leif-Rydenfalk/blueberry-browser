@@ -2,24 +2,28 @@ import type { AgentContext } from "../types/AgentTypes";
 
 export function buildReActPrompt(context: AgentContext): string {
   const { goal, history, currentUrl, pageText } = context;
+  const memory = (context as AgentContext & { memory?: string }).memory;
 
-  // Only keep last 5 steps to save tokens
-  const recentHistory = history.slice(-5);
+  const recentHistory = history.slice(-8);
 
   const historyText = recentHistory.length > 0
     ? recentHistory.map((step, i) => {
       const resultStr = step.result.success
-        ? `${JSON.stringify(step.result.data).substring(0, 100)}`
-        : `Error: ${step.result.error.substring(0, 100)}`;
+        ? `${compactValue(step.result.data, 140)}`
+        : `Error: ${step.result.error.substring(0, 140)}`;
       return `${i + 1}. ${step.action.type}: ${resultStr}`;
     }).join("\n")
     : "No previous actions.";
 
   const pageContext = pageText
-    ? `\nPage text:\n${pageText.substring(0, 1500)}${pageText.length > 1500 ? "..." : ""}`
+    ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2200)}`
     : "";
 
-  return `You are Blueberry AI, a browser automation agent. You ONLY know what you see in the browser. Do NOT use prior knowledge.
+  const memoryContext = memory
+    ? `\nWorking memory:\n${memory}`
+    : "";
+
+  return `You are Blueberry AI, a browser automation agent. Use only browser-visible evidence, page text, screenshots, and working memory from this run.
 
 DEFAULT BEHAVIOR:
 - First inspect the current page, URL, screenshot, and page text.
@@ -41,14 +45,14 @@ If the user asks a simple greeting or casual question (like "whats up dawg?") yo
 If the user asks for information that is not available on the current page, browse the web to find it.
 
 Task: ${goal}
-URL: ${currentUrl || "unknown"}${pageContext}
+URL: ${currentUrl || "unknown"}${memoryContext}${pageContext}
 
 Recent actions:
 ${historyText}
 
 Available actions (JSON only):
 - navigate: {"type":"navigate","params":{"url":"..."},"reasoning":"..."}
-- click: {"type":"click","params":{"selector":"css-selector","x":100,"y":200},"reasoning":"..."}
+- click: {"type":"click","params":{"selector":"css-selector","x":100,"y":200},"reasoning":"..."} (selector or x/y may be used)
 - type: {"type":"type","params":{"selector":"css-selector","text":"...","clearFirst":true},"reasoning":"..."}
 - scroll: {"type":"scroll","params":{"direction":"down","amount":500},"reasoning":"..."}
 - extract: {"type":"extract","params":{"selector":"css-selector","attribute":"text","name":"key"},"reasoning":"..."}
@@ -70,4 +74,60 @@ Respond with your next action:`;
 export function buildSystemPrompt(): string {
   return `You are Blueberry AI, a helpful browser automation agent. You can navigate websites, click elements, type text, scroll, extract information, and take screenshots.
 You think step by step and always explain your reasoning before acting. You are careful and precise with selectors. You handle errors gracefully and adapt your strategy.`;
+}
+
+function compactValue(value: unknown, maxLength: number): string {
+  if (value === null || value === undefined) return "ok";
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+}
+
+function selectRelevantPageText(pageText: string, goal: string, maxLength: number): string {
+  const normalized = pageText
+    .replace(/\r/g, "")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (normalized.length <= maxLength) return normalized;
+
+  const terms = getGoalTerms(goal);
+  if (terms.length === 0) return `${normalized.substring(0, maxLength)}...`;
+
+  const chunks = normalized
+    .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
+    .map((chunk, index) => ({ chunk: chunk.trim(), index }))
+    .filter(item => item.chunk.length > 0);
+
+  const selected = chunks
+    .map(item => ({ ...item, score: scoreText(item.chunk, terms) }))
+    .filter(item => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .slice(0, 10)
+    .sort((a, b) => a.index - b.index)
+    .map(item => item.chunk)
+    .join("\n\n");
+
+  const text = selected || normalized;
+  return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+}
+
+function getGoalTerms(goal: string): string[] {
+  const stopWords = new Set([
+    "about", "after", "again", "also", "and", "any", "are", "can", "could",
+    "for", "from", "have", "how", "into", "please", "show", "tell", "that",
+    "the", "this", "was", "what", "when", "where", "which", "with", "you",
+    "your",
+  ]);
+
+  return Array.from(new Set(goal.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) || []))
+    .filter(term => !stopWords.has(term));
+}
+
+function scoreText(text: string, terms: readonly string[]): number {
+  const lower = text.toLowerCase();
+  return terms.reduce((score, term) => {
+    const occurrences = lower.split(term).length - 1;
+    return score + occurrences * Math.min(term.length, 12);
+  }, 0);
 }
