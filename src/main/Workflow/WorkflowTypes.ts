@@ -1,4 +1,4 @@
-export type WorkflowStepType = 'navigation' | 'annotation' | 'screenshot';
+export type WorkflowStepType = "navigation" | "annotation" | "screenshot";
 
 export interface WorkflowNavigationData {
   readonly fromUrl: string | null;
@@ -15,9 +15,9 @@ export interface WorkflowScreenshotData {
 }
 
 export type WorkflowStepData =
-  | { readonly type: 'navigation'; readonly payload: WorkflowNavigationData }
-  | { readonly type: 'annotation'; readonly payload: WorkflowAnnotationData }
-  | { readonly type: 'screenshot'; readonly payload: WorkflowScreenshotData };
+  | { readonly type: "navigation"; readonly payload: WorkflowNavigationData }
+  | { readonly type: "annotation"; readonly payload: WorkflowAnnotationData }
+  | { readonly type: "screenshot"; readonly payload: WorkflowScreenshotData };
 
 export interface WorkflowStep {
   readonly id: string;
@@ -58,16 +58,16 @@ export interface WorkflowSummary {
 }
 
 export const WORKFLOW_CHANNELS = {
-  START_RECORDING: 'workflow:start-recording',
-  STOP_RECORDING: 'workflow:stop-recording',
-  CANCEL_RECORDING: 'workflow:cancel-recording',
-  ADD_ANNOTATION: 'workflow:add-annotation',
-  GET_RECORDING_STATE: 'workflow:get-recording-state',
-  GET_ALL: 'workflow:get-all',
-  GET_ONE: 'workflow:get-one',
-  DELETE: 'workflow:delete',
-  EXECUTE: 'workflow:execute',
-  RENAME: 'workflow:rename',
-  RECORDING_UPDATE: 'workflow:recording-update',
-  STEP_CAPTURED: 'workflow:step-captured',
+  START_RECORDING: "workflow:start-recording",
+  STOP_RECORDING: "workflow:stop-recording",
+  CANCEL_RECORDING: "workflow:cancel-recording",
+  ADD_ANNOTATION: "workflow:add-annotation",
+  GET_RECORDING_STATE: "workflow:get-recording-state",
+  GET_ALL: "workflow:get-all",
+  GET_ONE: "workflow:get-one",
+  DELETE: "workflow:delete",
+  EXECUTE: "workflow:execute",
+  RENAME: "workflow:rename",
+  RECORDING_UPDATE: "workflow:recording-update",
+  STEP_CAPTURED: "workflow:step-captured",
 } as const;

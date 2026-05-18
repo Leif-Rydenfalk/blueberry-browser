@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect } from 'react'
-import { useWorkflow } from '../contexts/WorkflowContext'
-import { cn } from '@common/lib/utils'
+import React, { useState, useRef, useEffect } from "react";
+import { useWorkflow } from "../contexts/WorkflowContext";
+import { cn } from "@common/lib/utils";
 import {
   Circle,
   Play,
@@ -12,54 +12,58 @@ import {
   MessageSquare,
   ChevronRight,
   Loader2,
-} from 'lucide-react'
+} from "lucide-react";
 
 const formatDuration = (ms: number): string => {
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s`
-  const m = Math.floor(s / 60)
-  const rem = s % 60
-  return `${m}m ${rem}s`
-}
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return `${m}m ${rem}s`;
+};
 
 const formatUrl = (url: string): string => {
   try {
-    const u = new URL(url)
-    return u.hostname + (u.pathname !== '/' ? u.pathname.slice(0, 30) : '')
+    const u = new URL(url);
+    return u.hostname + (u.pathname !== "/" ? u.pathname.slice(0, 30) : "");
   } catch {
-    return url.slice(0, 40)
+    return url.slice(0, 40);
   }
-}
+};
 
 const formatTime = (ms: number): string =>
-  new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 // --- Recording bar ---
 
 const RecordingBar: React.FC = () => {
-  const { recording, stopRecording, cancelRecording, addAnnotation } = useWorkflow()
-  const [saveName, setSaveName] = useState('')
-  const [annotation, setAnnotation] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [annotating, setAnnotating] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const { recording, stopRecording, cancelRecording, addAnnotation } =
+    useWorkflow();
+  const [saveName, setSaveName] = useState("");
+  const [annotation, setAnnotation] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [annotating, setAnnotating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const elapsed = recording.startedAt ? Math.round((Date.now() - recording.startedAt) / 1000) : 0
+  const elapsed = recording.startedAt
+    ? Math.round((Date.now() - recording.startedAt) / 1000)
+    : 0;
 
   const handleSave = async () => {
-    const name = saveName.trim() || `Workflow ${new Date().toLocaleDateString()}`
-    setSaving(true)
-    await stopRecording(name)
-    setSaveName('')
-    setSaving(false)
-  }
+    const name =
+      saveName.trim() || `Workflow ${new Date().toLocaleDateString()}`;
+    setSaving(true);
+    await stopRecording(name);
+    setSaveName("");
+    setSaving(false);
+  };
 
   const handleAnnotate = async () => {
-    if (!annotation.trim()) return
-    await addAnnotation(annotation.trim())
-    setAnnotation('')
-    setAnnotating(false)
-  }
+    if (!annotation.trim()) return;
+    await addAnnotation(annotation.trim());
+    setAnnotation("");
+    setAnnotating(false);
+  };
 
   return (
     <div className="mx-3 mb-2 rounded-2xl border border-red-500/30 bg-red-500/5 p-3 space-y-2">
@@ -83,19 +87,25 @@ const RecordingBar: React.FC = () => {
           <input
             ref={inputRef}
             value={annotation}
-            onChange={e => setAnnotation(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter') handleAnnotate()
-              if (e.key === 'Escape') setAnnotating(false)
+            onChange={(e) => setAnnotation(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleAnnotate();
+              if (e.key === "Escape") setAnnotating(false);
             }}
             placeholder="Note what you're doing..."
             className="flex-1 text-xs rounded-lg bg-background border border-border/50 px-2 py-1.5 outline-none focus:border-primary/40"
             autoFocus
           />
-          <button onClick={handleAnnotate} className="p-1.5 rounded-lg hover:bg-primary/10 text-primary">
+          <button
+            onClick={handleAnnotate}
+            className="p-1.5 rounded-lg hover:bg-primary/10 text-primary"
+          >
             <Check className="size-3.5" />
           </button>
-          <button onClick={() => setAnnotating(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground">
+          <button
+            onClick={() => setAnnotating(false)}
+            className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground"
+          >
             <X className="size-3.5" />
           </button>
         </div>
@@ -105,7 +115,7 @@ const RecordingBar: React.FC = () => {
           className={cn(
             "flex items-center gap-1.5 w-full px-2.5 py-1.5 rounded-lg text-xs",
             "border border-border/40 bg-background/60 hover:bg-background",
-            "text-muted-foreground hover:text-foreground transition-colors"
+            "text-muted-foreground hover:text-foreground transition-colors",
           )}
         >
           <MessageSquare className="size-3" />
@@ -117,8 +127,10 @@ const RecordingBar: React.FC = () => {
         <div className="flex-1">
           <input
             value={saveName}
-            onChange={e => setSaveName(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') handleSave() }}
+            onChange={(e) => setSaveName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSave();
+            }}
             placeholder="Workflow name..."
             className="w-full text-xs rounded-lg bg-background border border-border/50 px-2 py-1.5 outline-none focus:border-primary/40"
           />
@@ -128,10 +140,14 @@ const RecordingBar: React.FC = () => {
           disabled={saving}
           className={cn(
             "flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium",
-            "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity"
+            "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 transition-opacity",
           )}
         >
-          {saving ? <Loader2 className="size-3 animate-spin" /> : <Check className="size-3" />}
+          {saving ? (
+            <Loader2 className="size-3 animate-spin" />
+          ) : (
+            <Check className="size-3" />
+          )}
           Save
         </button>
         <button
@@ -142,43 +158,45 @@ const RecordingBar: React.FC = () => {
         </button>
       </div>
     </div>
-  )
-}
+  );
+};
 
 // --- Workflow card ---
 
 interface WorkflowSummary {
-  id: string
-  name: string
-  description?: string
-  createdAt: number
-  duration: number
-  stepCount: number
-  startUrl: string
-  endUrl: string
+  id: string;
+  name: string;
+  description?: string;
+  createdAt: number;
+  duration: number;
+  stepCount: number;
+  startUrl: string;
+  endUrl: string;
 }
 
-const WorkflowCard: React.FC<{ workflow: WorkflowSummary; onExecute: () => void }> = ({
-  workflow,
-  onExecute,
-}) => {
-  const { deleteWorkflow, renameWorkflow } = useWorkflow()
-  const [editing, setEditing] = useState(false)
-  const [editName, setEditName] = useState(workflow.name)
-  const [confirming, setConfirming] = useState(false)
+const WorkflowCard: React.FC<{
+  workflow: WorkflowSummary;
+  onExecute: () => void;
+}> = ({ workflow, onExecute }) => {
+  const { deleteWorkflow, renameWorkflow } = useWorkflow();
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(workflow.name);
+  const [confirming, setConfirming] = useState(false);
 
   const handleRename = async () => {
     if (editName.trim() && editName.trim() !== workflow.name) {
-      await renameWorkflow(workflow.id, editName.trim())
+      await renameWorkflow(workflow.id, editName.trim());
     }
-    setEditing(false)
-  }
+    setEditing(false);
+  };
 
   return (
-    <div className={cn(
-      "group rounded-2xl border border-border/50 bg-background/60",
-      "hover:border-border hover:bg-background transition-all p-3 space-y-2"
-    )}>
+    <div
+      className={cn(
+        "group rounded-2xl border border-border/50 bg-background/60",
+        "hover:border-border hover:bg-background transition-all p-3 space-y-2",
+      )}
+    >
       <div className="flex items-start gap-2">
         <div className="size-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <span className="text-base">🫐</span>
@@ -188,24 +206,32 @@ const WorkflowCard: React.FC<{ workflow: WorkflowSummary; onExecute: () => void 
             <div className="flex gap-1">
               <input
                 value={editName}
-                onChange={e => setEditName(e.target.value)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter') handleRename()
-                  if (e.key === 'Escape') setEditing(false)
+                onChange={(e) => setEditName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleRename();
+                  if (e.key === "Escape") setEditing(false);
                 }}
                 className="flex-1 text-sm rounded-md bg-background border border-border/50 px-2 py-0.5 outline-none focus:border-primary/40"
                 autoFocus
               />
-              <button onClick={handleRename} className="p-1 rounded hover:bg-primary/10 text-primary">
+              <button
+                onClick={handleRename}
+                className="p-1 rounded hover:bg-primary/10 text-primary"
+              >
                 <Check className="size-3" />
               </button>
-              <button onClick={() => setEditing(false)} className="p-1 rounded hover:bg-muted text-muted-foreground">
+              <button
+                onClick={() => setEditing(false)}
+                className="p-1 rounded hover:bg-muted text-muted-foreground"
+              >
                 <X className="size-3" />
               </button>
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <span className="text-sm font-medium truncate">{workflow.name}</span>
+              <span className="text-sm font-medium truncate">
+                {workflow.name}
+              </span>
               <button
                 onClick={() => setEditing(true)}
                 className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted text-muted-foreground transition-opacity"
@@ -236,7 +262,7 @@ const WorkflowCard: React.FC<{ workflow: WorkflowSummary; onExecute: () => void 
           onClick={onExecute}
           className={cn(
             "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-medium",
-            "bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
+            "bg-primary text-primary-foreground hover:opacity-90 transition-opacity",
           )}
         >
           <Play className="size-3" />
@@ -245,7 +271,10 @@ const WorkflowCard: React.FC<{ workflow: WorkflowSummary; onExecute: () => void 
         {confirming ? (
           <>
             <button
-              onClick={async () => { await deleteWorkflow(workflow.id); setConfirming(false) }}
+              onClick={async () => {
+                await deleteWorkflow(workflow.id);
+                setConfirming(false);
+              }}
               className="px-2.5 py-1.5 rounded-xl text-xs font-medium bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors"
             >
               Delete
@@ -267,30 +296,37 @@ const WorkflowCard: React.FC<{ workflow: WorkflowSummary; onExecute: () => void 
         )}
       </div>
     </div>
-  )
-}
+  );
+};
 
 // --- Execute modal (goal override) ---
 
 const ExecuteModal: React.FC<{
-  workflow: WorkflowSummary
-  onConfirm: (goal?: string) => void
-  onCancel: () => void
+  workflow: WorkflowSummary;
+  onConfirm: (goal?: string) => void;
+  onCancel: () => void;
 }> = ({ workflow, onConfirm, onCancel }) => {
-  const [goal, setGoal] = useState('')
+  const [goal, setGoal] = useState("");
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center p-4">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onCancel} />
-      <div className={cn(
-        "relative w-full rounded-2xl p-4 space-y-3",
-        "bg-background border border-border/60 shadow-lg"
-      )}>
+      <div
+        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        onClick={onCancel}
+      />
+      <div
+        className={cn(
+          "relative w-full rounded-2xl p-4 space-y-3",
+          "bg-background border border-border/60 shadow-lg",
+        )}
+      >
         <div className="flex items-center gap-2">
           <span className="text-lg">🫐</span>
           <div>
             <div className="text-sm font-semibold">Run "{workflow.name}"</div>
-            <div className="text-xs text-muted-foreground">{workflow.stepCount} steps · {formatDuration(workflow.duration)}</div>
+            <div className="text-xs text-muted-foreground">
+              {workflow.stepCount} steps · {formatDuration(workflow.duration)}
+            </div>
           </div>
         </div>
 
@@ -300,12 +336,12 @@ const ExecuteModal: React.FC<{
           </label>
           <textarea
             value={goal}
-            onChange={e => setGoal(e.target.value)}
+            onChange={(e) => setGoal(e.target.value)}
             placeholder={`Reproduce this workflow as-is, or describe changes...`}
             rows={3}
             className={cn(
               "w-full text-sm rounded-xl border border-border/50 bg-secondary/30",
-              "px-3 py-2 outline-none focus:border-primary/40 resize-none"
+              "px-3 py-2 outline-none focus:border-primary/40 resize-none",
             )}
           />
         </div>
@@ -327,24 +363,30 @@ const ExecuteModal: React.FC<{
         </div>
       </div>
     </div>
-  )
-}
+  );
+};
 
 // --- Main panel ---
 
 export const WorkflowPanel: React.FC = () => {
-  const { recording, workflows, isExecuting, startRecording, refreshWorkflows } = useWorkflow()
-  const [executing, setExecuting] = useState<WorkflowSummary | null>(null)
-  const { executeWorkflow } = useWorkflow()
+  const {
+    recording,
+    workflows,
+    isExecuting,
+    startRecording,
+    refreshWorkflows,
+  } = useWorkflow();
+  const [executing, setExecuting] = useState<WorkflowSummary | null>(null);
+  const { executeWorkflow } = useWorkflow();
 
   useEffect(() => {
-    refreshWorkflows()
-  }, [refreshWorkflows])
+    refreshWorkflows();
+  }, [refreshWorkflows]);
 
   const handleExecute = async (workflow: WorkflowSummary, goal?: string) => {
-    setExecuting(null)
-    await executeWorkflow(workflow.id, goal)
-  }
+    setExecuting(null);
+    await executeWorkflow(workflow.id, goal);
+  };
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -367,7 +409,7 @@ export const WorkflowPanel: React.FC = () => {
             onClick={startRecording}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium",
-              "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+              "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors",
             )}
           >
             <Circle className="size-3" />
@@ -407,7 +449,7 @@ export const WorkflowPanel: React.FC = () => {
                   onClick={startRecording}
                   className={cn(
                     "mt-2 flex items-center gap-1.5 mx-auto px-4 py-2 rounded-xl text-xs font-medium",
-                    "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors"
+                    "bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20 transition-colors",
                   )}
                 >
                   <Circle className="size-3" />
@@ -417,7 +459,7 @@ export const WorkflowPanel: React.FC = () => {
             </div>
           </div>
         ) : (
-          workflows.map(workflow => (
+          workflows.map((workflow) => (
             <WorkflowCard
               key={workflow.id}
               workflow={workflow}
@@ -431,10 +473,10 @@ export const WorkflowPanel: React.FC = () => {
       {executing && (
         <ExecuteModal
           workflow={executing}
-          onConfirm={goal => handleExecute(executing, goal)}
+          onConfirm={(goal) => handleExecute(executing, goal)}
           onCancel={() => setExecuting(null)}
         />
       )}
     </div>
-  )
-}
+  );
+};

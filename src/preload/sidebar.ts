@@ -23,7 +23,7 @@ interface AgentSessionRequest {
     readonly pageUrl: string | null;
     readonly pageText: string | null;
   };
-  readonly mode: 'single-tab' | 'multi-tab';
+  readonly mode: "single-tab" | "multi-tab";
 }
 
 interface AgentStreamUpdate {
@@ -34,7 +34,7 @@ interface AgentStreamUpdate {
     readonly params: Record<string, unknown>;
     readonly reasoning: string;
   };
-  readonly status: 'pending' | 'running' | 'success' | 'error';
+  readonly status: "pending" | "running" | "success" | "error";
   readonly result?: {
     readonly success: boolean;
     readonly data?: unknown;
@@ -45,7 +45,7 @@ interface AgentStreamUpdate {
 }
 
 interface ModelOption {
-  readonly provider: 'openai' | 'anthropic';
+  readonly provider: "openai" | "anthropic";
   readonly model: string;
   readonly label: string;
 }
@@ -62,7 +62,10 @@ interface WorkflowStep {
   readonly timestamp: number;
   readonly url: string;
   readonly pageTitle: string;
-  readonly data: { readonly type: string; readonly payload: Record<string, unknown> };
+  readonly data: {
+    readonly type: string;
+    readonly payload: Record<string, unknown>;
+  };
 }
 
 interface ModelSelection extends ModelOption {
@@ -77,8 +80,10 @@ const sidebarAPI = {
 
   clearChat: () => electronAPI.ipcRenderer.invoke("sidebar-clear-chat"),
   getMessages: () => electronAPI.ipcRenderer.invoke("sidebar-get-messages"),
-  getModelOptions: () => electronAPI.ipcRenderer.invoke("sidebar-get-model-options"),
-  getModelSelection: () => electronAPI.ipcRenderer.invoke("sidebar-get-model-selection"),
+  getModelOptions: () =>
+    electronAPI.ipcRenderer.invoke("sidebar-get-model-options"),
+  getModelSelection: () =>
+    electronAPI.ipcRenderer.invoke("sidebar-get-model-selection"),
   setModelSelection: (selection: Pick<ModelSelection, "provider" | "model">) =>
     electronAPI.ipcRenderer.invoke("sidebar-set-model-selection", selection),
 
@@ -86,9 +91,9 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.on("chat-response", (_, data) => callback(data));
   },
 
-  onMessagesUpdated: (callback: (messages: any[]) => void) => {
+  onMessagesUpdated: (callback: (messages: unknown[]) => void) => {
     electronAPI.ipcRenderer.on("chat-messages-updated", (_, messages) =>
-      callback(messages)
+      callback(messages),
     );
   },
 
@@ -118,11 +123,12 @@ const sidebarAPI = {
   sendMessageToAgent: (message: string) =>
     electronAPI.ipcRenderer.invoke("agent:send-message", message),
 
-  getAgentStatus: () =>
-    electronAPI.ipcRenderer.invoke("agent:get-status"),
+  getAgentStatus: () => electronAPI.ipcRenderer.invoke("agent:get-status"),
 
   onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => {
-    electronAPI.ipcRenderer.on("agent:stream-update", (_, data) => callback(data));
+    electronAPI.ipcRenderer.on("agent:stream-update", (_, data) =>
+      callback(data),
+    );
   },
 
   removeAgentUpdateListener: () => {
@@ -145,8 +151,7 @@ const sidebarAPI = {
   getWorkflowRecordingState: () =>
     electronAPI.ipcRenderer.invoke("workflow:get-recording-state"),
 
-  getAllWorkflows: () =>
-    electronAPI.ipcRenderer.invoke("workflow:get-all"),
+  getAllWorkflows: () => electronAPI.ipcRenderer.invoke("workflow:get-all"),
 
   getWorkflow: (id: string) =>
     electronAPI.ipcRenderer.invoke("workflow:get-one", id),
@@ -161,7 +166,9 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.invoke("workflow:execute", id, goalOverride),
 
   onWorkflowRecordingUpdate: (callback: (state: RecordingState) => void) => {
-    electronAPI.ipcRenderer.on("workflow:recording-update", (_, state) => callback(state));
+    electronAPI.ipcRenderer.on("workflow:recording-update", (_, state) =>
+      callback(state),
+    );
   },
 
   removeWorkflowRecordingUpdateListener: () => {
@@ -169,7 +176,9 @@ const sidebarAPI = {
   },
 
   onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => {
-    electronAPI.ipcRenderer.on("workflow:step-captured", (_, step) => callback(step));
+    electronAPI.ipcRenderer.on("workflow:step-captured", (_, step) =>
+      callback(step),
+    );
   },
 
   removeWorkflowStepCapturedListener: () => {
@@ -185,8 +194,8 @@ if (process.contextIsolated) {
     console.error(error);
   }
 } else {
-  // @ts-ignore
+  // @ts-ignore -- non-isolated context: direct window assignment required by Electron
   window.electron = electronAPI;
-  // @ts-ignore
+  // @ts-ignore -- non-isolated context: direct window assignment required by Electron
   window.sidebarAPI = sidebarAPI;
 }

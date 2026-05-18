@@ -1,27 +1,38 @@
 import type { AgentContext } from "../types/AgentTypes";
 
 export function buildReActPrompt(context: AgentContext): string {
-  const { goal, history, currentUrl, pageText, profile, loopMode, stepBudget, elapsedMs, remainingMs } = context;
+  const {
+    goal,
+    history,
+    currentUrl,
+    pageText,
+    profile,
+    loopMode,
+    stepBudget,
+    elapsedMs,
+    remainingMs,
+  } = context;
   const memory = (context as AgentContext & { memory?: string }).memory;
 
   const recentHistory = history.slice(-8);
 
-  const historyText = recentHistory.length > 0
-    ? recentHistory.map((step, i) => {
-      const resultStr = step.result.success
-        ? `${compactValue(step.result.data, 140)}`
-        : `Error: ${step.result.error.substring(0, 140)}`;
-      return `${i + 1}. ${step.action.type}: ${resultStr}`;
-    }).join("\n")
-    : "No previous actions.";
+  const historyText =
+    recentHistory.length > 0
+      ? recentHistory
+          .map((step, i) => {
+            const resultStr = step.result.success
+              ? `${compactValue(step.result.data, 140)}`
+              : `Error: ${step.result.error.substring(0, 140)}`;
+            return `${i + 1}. ${step.action.type}: ${resultStr}`;
+          })
+          .join("\n")
+      : "No previous actions.";
 
   const pageContext = pageText
     ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2200)}`
     : "";
 
-  const memoryContext = memory
-    ? `\nWorking memory:\n${memory}`
-    : "";
+  const memoryContext = memory ? `\nWorking memory:\n${memory}` : "";
 
   const runContext = `\nRun mode: ${profile || "quick"}${loopMode ? " loop" : ""}
 Step budget: ${stepBudget || "unknown"}
@@ -113,7 +124,11 @@ function compactValue(value: unknown, maxLength: number): string {
   return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
 }
 
-function selectRelevantPageText(pageText: string, goal: string, maxLength: number): string {
+function selectRelevantPageText(
+  pageText: string,
+  goal: string,
+  maxLength: number,
+): string {
   const normalized = pageText
     .replace(/\r/g, "")
     .replace(/[ \t]+/g, " ")
@@ -128,15 +143,15 @@ function selectRelevantPageText(pageText: string, goal: string, maxLength: numbe
   const chunks = normalized
     .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
     .map((chunk, index) => ({ chunk: chunk.trim(), index }))
-    .filter(item => item.chunk.length > 0);
+    .filter((item) => item.chunk.length > 0);
 
   const selected = chunks
-    .map(item => ({ ...item, score: scoreText(item.chunk, terms) }))
-    .filter(item => item.score > 0)
+    .map((item) => ({ ...item, score: scoreText(item.chunk, terms) }))
+    .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .slice(0, 10)
     .sort((a, b) => a.index - b.index)
-    .map(item => item.chunk)
+    .map((item) => item.chunk)
     .join("\n\n");
 
   const text = selected || normalized;
@@ -145,14 +160,39 @@ function selectRelevantPageText(pageText: string, goal: string, maxLength: numbe
 
 function getGoalTerms(goal: string): string[] {
   const stopWords = new Set([
-    "about", "after", "again", "also", "and", "any", "are", "can", "could",
-    "for", "from", "have", "how", "into", "please", "show", "tell", "that",
-    "the", "this", "was", "what", "when", "where", "which", "with", "you",
+    "about",
+    "after",
+    "again",
+    "also",
+    "and",
+    "any",
+    "are",
+    "can",
+    "could",
+    "for",
+    "from",
+    "have",
+    "how",
+    "into",
+    "please",
+    "show",
+    "tell",
+    "that",
+    "the",
+    "this",
+    "was",
+    "what",
+    "when",
+    "where",
+    "which",
+    "with",
+    "you",
     "your",
   ]);
 
-  return Array.from(new Set(goal.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) || []))
-    .filter(term => !stopWords.has(term));
+  return Array.from(
+    new Set(goal.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) || []),
+  ).filter((term) => !stopWords.has(term));
 }
 
 function scoreText(text: string, terms: readonly string[]): number {

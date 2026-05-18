@@ -16,7 +16,9 @@ export class AgentIpcHandler {
     });
   }
 
-  async start(request: AgentSessionRequest): Promise<{ sessionId: string; status: string }> {
+  async start(
+    request: AgentSessionRequest,
+  ): Promise<{ sessionId: string; status: string }> {
     const session = await this.orchestrator.startSession(request);
     return { sessionId: session.id, status: session.status };
   }

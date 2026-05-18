@@ -50,26 +50,38 @@ export class EventManager {
 
     // Broadcasts agent updates to sidebar UI
     this.agentHandler.onUpdate((update) => {
-      this.mainWindow.sidebar.view.webContents.send("agent:stream-update", update);
+      this.mainWindow.sidebar.view.webContents.send(
+        "agent:stream-update",
+        update,
+      );
     });
   }
 
   private setupWorkflowHandlers(): void {
     // Push recording state changes to sidebar
     this.workflowHandler.setOnUpdate((state) => {
-      this.mainWindow.sidebar.view.webContents.send(WORKFLOW_CHANNELS.RECORDING_UPDATE, state);
+      this.mainWindow.sidebar.view.webContents.send(
+        WORKFLOW_CHANNELS.RECORDING_UPDATE,
+        state,
+      );
     });
     this.workflowHandler.setOnStepCaptured((step) => {
-      this.mainWindow.sidebar.view.webContents.send(WORKFLOW_CHANNELS.STEP_CAPTURED, step);
+      this.mainWindow.sidebar.view.webContents.send(
+        WORKFLOW_CHANNELS.STEP_CAPTURED,
+        step,
+      );
     });
 
     ipcMain.handle(WORKFLOW_CHANNELS.START_RECORDING, () => {
       return this.workflowHandler.startRecording();
     });
 
-    ipcMain.handle(WORKFLOW_CHANNELS.STOP_RECORDING, async (_, name: string) => {
-      return await this.workflowHandler.stopRecording(name);
-    });
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.STOP_RECORDING,
+      async (_, name: string) => {
+        return await this.workflowHandler.stopRecording(name);
+      },
+    );
 
     ipcMain.handle(WORKFLOW_CHANNELS.CANCEL_RECORDING, () => {
       this.workflowHandler.cancelRecording();
@@ -99,15 +111,18 @@ export class EventManager {
       return this.workflowHandler.renameWorkflow(id, name);
     });
 
-    ipcMain.handle(WORKFLOW_CHANNELS.EXECUTE, async (_, id: string, goalOverride?: string) => {
-      const prompt = this.workflowHandler.buildAgentPrompt(id, goalOverride);
-      if (!prompt) return { error: 'Workflow not found' };
-      const result = await this.agentHandler.start({
-        goal: prompt,
-        mode: 'single-tab',
-      });
-      return result;
-    });
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.EXECUTE,
+      async (_, id: string, goalOverride?: string) => {
+        const prompt = this.workflowHandler.buildAgentPrompt(id, goalOverride);
+        if (!prompt) return { error: "Workflow not found" };
+        const result = await this.agentHandler.start({
+          goal: prompt,
+          mode: "single-tab",
+        });
+        return result;
+      },
+    );
   }
 
   private handleTabEvents(): void {
@@ -254,9 +269,15 @@ export class EventManager {
       return this.mainWindow.sidebar.client.getModelSelection();
     });
 
-    ipcMain.handle("sidebar-set-model-selection", (_, selection: { provider: "openai" | "anthropic"; model: string }) => {
-      return this.mainWindow.sidebar.client.setModelSelection(selection.provider, selection.model);
-    });
+    ipcMain.handle(
+      "sidebar-set-model-selection",
+      (_, selection: { provider: "openai" | "anthropic"; model: string }) => {
+        return this.mainWindow.sidebar.client.setModelSelection(
+          selection.provider,
+          selection.model,
+        );
+      },
+    );
   }
 
   private handlePageContentEvents(): void {
@@ -304,11 +325,17 @@ export class EventManager {
 
   private broadcastDarkMode(sender: WebContents, isDarkMode: boolean): void {
     if (this.mainWindow.topBar.view.webContents !== sender) {
-      this.mainWindow.topBar.view.webContents.send("dark-mode-updated", isDarkMode);
+      this.mainWindow.topBar.view.webContents.send(
+        "dark-mode-updated",
+        isDarkMode,
+      );
     }
 
     if (this.mainWindow.sidebar.view.webContents !== sender) {
-      this.mainWindow.sidebar.view.webContents.send("dark-mode-updated", isDarkMode);
+      this.mainWindow.sidebar.view.webContents.send(
+        "dark-mode-updated",
+        isDarkMode,
+      );
     }
 
     this.mainWindow.allTabs.forEach((tab) => {

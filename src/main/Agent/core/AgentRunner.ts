@@ -23,7 +23,11 @@ export class AgentRunner {
   private onComplete: ((steps: AgentStep[]) => void) | null = null;
   private onError: ((error: string) => void) | null = null;
 
-  constructor(config: AgentConfig, strategy: TabStrategy, llmClient: LLMClient) {
+  constructor(
+    config: AgentConfig,
+    strategy: TabStrategy,
+    llmClient: LLMClient,
+  ) {
     this.config = config;
     this.strategy = strategy;
     this.llmClient = llmClient;
@@ -32,7 +36,7 @@ export class AgentRunner {
   setCallbacks(
     onUpdate: (update: AgentStreamUpdate) => void,
     onComplete: (steps: AgentStep[]) => void,
-    onError: (error: string) => void
+    onError: (error: string) => void,
   ): void {
     this.onUpdate = onUpdate;
     this.onComplete = onComplete;
@@ -60,13 +64,22 @@ export class AgentRunner {
         stepNum++;
 
         // Check max duration
-        if (this.config.maxDurationMs && Date.now() - startTime > this.config.maxDurationMs) {
+        if (
+          this.config.maxDurationMs &&
+          Date.now() - startTime > this.config.maxDurationMs
+        ) {
           console.log("[AgentRunner] Max duration reached, finishing");
           finished = true;
           this.emitUpdate({
             step: stepNum,
             totalSteps: this.config.maxSteps,
-            action: { type: "finish", params: { answer: `Task ran for ${this.config.maxDurationMs / 60000} minutes. Completed ${stepNum} steps.` }, reasoning: "Max duration reached" },
+            action: {
+              type: "finish",
+              params: {
+                answer: `Task ran for ${this.config.maxDurationMs / 60000} minutes. Completed ${stepNum} steps.`,
+              },
+              reasoning: "Max duration reached",
+            },
             status: "success",
             sessionId: "",
           });
@@ -91,19 +104,25 @@ export class AgentRunner {
 
         const elapsedMs = Date.now() - startTime;
         const context = {
-          ...await this.strategy.getActiveContext(goal, this.steps),
+          ...(await this.strategy.getActiveContext(goal, this.steps)),
           memory: this.buildWorkingMemory(),
           profile: this.config.taskProfile,
           loopMode: this.config.loopMode,
           stepBudget: this.config.maxSteps,
           elapsedMs,
-          remainingMs: this.config.maxDurationMs ? Math.max(0, this.config.maxDurationMs - elapsedMs) : undefined,
+          remainingMs: this.config.maxDurationMs
+            ? Math.max(0, this.config.maxDurationMs - elapsedMs)
+            : undefined,
         };
 
         this.emitUpdate({
           step: stepNum,
           totalSteps: this.config.maxSteps,
-          action: { type: "screenshot", params: {}, reasoning: "Analyzing page state" },
+          action: {
+            type: "screenshot",
+            params: {},
+            reasoning: "Analyzing page state",
+          },
           status: "pending",
           sessionId: "",
         });
@@ -113,7 +132,10 @@ export class AgentRunner {
 
         let responseText: string | null;
         if (context.screenshot) {
-          responseText = await this.llmClient.generateVisionText(basePrompt, context.screenshot);
+          responseText = await this.llmClient.generateVisionText(
+            basePrompt,
+            context.screenshot,
+          );
         } else {
           responseText = await this.llmClient.generateText(basePrompt);
         }
@@ -124,15 +146,23 @@ export class AgentRunner {
 
         const action = this.parseActionFromResponse(responseText);
         if (!action) {
-          console.error("[AgentRunner] Failed to parse action from:", responseText);
+          console.error(
+            "[AgentRunner] Failed to parse action from:",
+            responseText,
+          );
           throw new Error("Failed to parse valid action from LLM response");
         }
         const actionSignature = this.getActionSignature(action);
-        repeatedActionCount = actionSignature === previousActionSignature ? repeatedActionCount + 1 : 1;
+        repeatedActionCount =
+          actionSignature === previousActionSignature
+            ? repeatedActionCount + 1
+            : 1;
         previousActionSignature = actionSignature;
 
         if (this.config.loopMode && repeatedActionCount >= 10) {
-          this.remember(`Repeated ${action.type} ${repeatedActionCount} times; inspect the current page and vary the approach if progress stalls.`);
+          this.remember(
+            `Repeated ${action.type} ${repeatedActionCount} times; inspect the current page and vary the approach if progress stalls.`,
+          );
         }
 
         this.emitUpdate({
@@ -183,7 +213,22 @@ export class AgentRunner {
             this.emitUpdate({
               step: stepNum,
               totalSteps: this.config.maxSteps,
-              action: { type: "finish", params: { answer: "I encountered repeated errors (likely due to page security restrictions). Here's what I observed: " + JSON.stringify(this.steps.map(s => s.action.type + ":" + (s.result.success ? "ok" : "fail"))) }, reasoning: "Forced finish due to errors" },
+              action: {
+                type: "finish",
+                params: {
+                  answer:
+                    "I encountered repeated errors (likely due to page security restrictions). Here's what I observed: " +
+                    JSON.stringify(
+                      this.steps.map(
+                        (s) =>
+                          s.action.type +
+                          ":" +
+                          (s.result.success ? "ok" : "fail"),
+                      ),
+                    ),
+                },
+                reasoning: "Forced finish due to errors",
+              },
               status: "success",
               sessionId: "",
             });
@@ -202,7 +247,9 @@ export class AgentRunner {
           totalSteps: this.config.maxSteps,
           action: {
             type: "finish",
-            params: { answer: `Reached the step budget for this run after ${this.config.maxSteps} steps. I kept the task moving until the configured limit.` },
+            params: {
+              answer: `Reached the step budget for this run after ${this.config.maxSteps} steps. I kept the task moving until the configured limit.`,
+            },
             reasoning: "Step budget reached",
           },
           status: "success",
@@ -281,7 +328,10 @@ export class AgentRunner {
     this.onUpdate?.(update);
   }
 
-  private updateWorkingMemory(action: AgentAction, result: import("../types/AgentTypes").ActionResult): void {
+  private updateWorkingMemory(
+    action: AgentAction,
+    result: import("../types/AgentTypes").ActionResult,
+  ): void {
     if (action.type === "finish") {
       const answer = (action.params as { answer?: string }).answer;
       if (answer) this.remember(`Final answer drafted: ${answer}`);
@@ -304,8 +354,15 @@ export class AgentRunner {
       return;
     }
 
-    if (action.type === "click" || action.type === "type" || action.type === "scroll" || action.type === "key") {
-      this.remember(`${action.type} succeeded: ${this.compact(action.params, 180)}`);
+    if (
+      action.type === "click" ||
+      action.type === "type" ||
+      action.type === "scroll" ||
+      action.type === "key"
+    ) {
+      this.remember(
+        `${action.type} succeeded: ${this.compact(action.params, 180)}`,
+      );
     }
   }
 
@@ -323,13 +380,17 @@ export class AgentRunner {
   }
 
   private buildWorkingMemory(): string {
-    return this.workingMemory.map((entry, index) => `${index + 1}. ${entry}`).join("\n");
+    return this.workingMemory
+      .map((entry, index) => `${index + 1}. ${entry}`)
+      .join("\n");
   }
 
   private compact(value: unknown, maxLength: number): string {
     const text = typeof value === "string" ? value : JSON.stringify(value);
     if (!text) return "";
-    return text.length > maxLength ? `${text.substring(0, maxLength)}...` : text;
+    return text.length > maxLength
+      ? `${text.substring(0, maxLength)}...`
+      : text;
   }
 
   private getActionSignature(action: AgentAction): string {
@@ -337,6 +398,6 @@ export class AgentRunner {
   }
 
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

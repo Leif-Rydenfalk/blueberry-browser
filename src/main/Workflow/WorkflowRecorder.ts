@@ -1,11 +1,7 @@
-import { v4 as uuidv4 } from 'uuid';
-import type { Tab } from '../Tab';
-import type { Window } from '../Window';
-import type {
-  Workflow,
-  WorkflowStep,
-  RecordingState,
-} from './WorkflowTypes';
+import { v4 as uuidv4 } from "uuid";
+import type { Tab } from "../Tab";
+import type { Window } from "../Window";
+import type { Workflow, WorkflowStep, RecordingState } from "./WorkflowTypes";
 
 export class WorkflowRecorder {
   private recording = false;
@@ -16,7 +12,10 @@ export class WorkflowRecorder {
   private onStepCaptured: ((step: WorkflowStep) => void) | null = null;
 
   // Bound listener references so we can remove them
-  private readonly navListeners: Map<string, (event: Electron.Event, url: string) => void> = new Map();
+  private readonly navListeners: Map<
+    string,
+    (event: Electron.Event, url: string) => void
+  > = new Map();
 
   setOnUpdate(cb: (state: RecordingState) => void): void {
     this.onUpdate = cb;
@@ -80,7 +79,7 @@ export class WorkflowRecorder {
       timestamp: Date.now(),
       url: currentUrl,
       pageTitle,
-      data: { type: 'annotation', payload: { text } },
+      data: { type: "annotation", payload: { text } },
     };
     this.steps.push(step);
     this.onStepCaptured?.(step);
@@ -99,7 +98,7 @@ export class WorkflowRecorder {
       url: toUrl,
       pageTitle: tab.title,
       data: {
-        type: 'navigation',
+        type: "navigation",
         payload: { fromUrl: this.lastUrl, toUrl, pageTitle: tab.title },
       },
     };
@@ -108,38 +107,41 @@ export class WorkflowRecorder {
     this.emitState();
 
     // Capture screenshot async without blocking navigation
-    tab.screenshot().then(image => {
-      const screenshotStep: WorkflowStep = {
-        id: uuidv4(),
-        timestamp: Date.now(),
-        url: toUrl,
-        pageTitle: tab.title,
-        data: {
-          type: 'screenshot',
-          payload: { imageData: image.toDataURL() },
-        },
-      };
-      this.steps.push(screenshotStep);
-      this.onStepCaptured?.(screenshotStep);
-    }).catch(err => {
-      console.error('[WorkflowRecorder] Screenshot failed:', err);
-    });
+    tab
+      .screenshot()
+      .then((image) => {
+        const screenshotStep: WorkflowStep = {
+          id: uuidv4(),
+          timestamp: Date.now(),
+          url: toUrl,
+          pageTitle: tab.title,
+          data: {
+            type: "screenshot",
+            payload: { imageData: image.toDataURL() },
+          },
+        };
+        this.steps.push(screenshotStep);
+        this.onStepCaptured?.(screenshotStep);
+      })
+      .catch((err) => {
+        console.error("[WorkflowRecorder] Screenshot failed:", err);
+      });
   }
 
   hookTab(tab: Tab): void {
-    const listener = (_event: Electron.Event, url: string) => {
+    const listener = (_event: Electron.Event, url: string): void => {
       this.captureNavigation(tab, url);
     };
     this.navListeners.set(tab.id, listener);
-    tab.webContents.on('did-navigate', listener);
-    tab.webContents.on('did-navigate-in-page', listener);
+    tab.webContents.on("did-navigate", listener);
+    tab.webContents.on("did-navigate-in-page", listener);
   }
 
   unhookTab(tab: Tab): void {
     const listener = this.navListeners.get(tab.id);
     if (!listener) return;
-    tab.webContents.removeListener('did-navigate', listener);
-    tab.webContents.removeListener('did-navigate-in-page', listener);
+    tab.webContents.removeListener("did-navigate", listener);
+    tab.webContents.removeListener("did-navigate-in-page", listener);
     this.navListeners.delete(tab.id);
   }
 

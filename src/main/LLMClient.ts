@@ -1,5 +1,10 @@
 import { WebContents } from "electron";
-import { streamText, generateText as generateAIText, type LanguageModel, type CoreMessage } from "ai";
+import {
+  streamText,
+  generateText as generateAIText,
+  type LanguageModel,
+  type CoreMessage,
+} from "ai";
 import { openai } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
@@ -75,7 +80,10 @@ export class LLMClient {
     return process.env.LLM_MODEL || "";
   }
 
-  private initializeModel(provider: LLMProvider, modelName: string): LanguageModel | null {
+  private initializeModel(
+    provider: LLMProvider,
+    modelName: string,
+  ): LanguageModel | null {
     const apiKey = this.getApiKey(provider);
     if (!apiKey || !modelName) return null;
 
@@ -102,7 +110,11 @@ export class LLMClient {
 
   async getModelOptions(forceRefresh = false): Promise<readonly ModelOption[]> {
     const now = Date.now();
-    if (!forceRefresh && this.modelOptions && now - this.modelOptionsFetchedAt < MODEL_CACHE_TTL_MS) {
+    if (
+      !forceRefresh &&
+      this.modelOptions &&
+      now - this.modelOptionsFetchedAt < MODEL_CACHE_TTL_MS
+    ) {
       return this.withCurrentModelOption(this.modelOptions);
     }
 
@@ -115,7 +127,9 @@ export class LLMClient {
     this.modelOptionsFetchedAt = now;
 
     if (!this.model && this.modelOptions.length > 0) {
-      const preferred = this.selectPreferredModel(this.modelOptions, this.provider) || this.modelOptions[0];
+      const preferred =
+        this.selectPreferredModel(this.modelOptions, this.provider) ||
+        this.modelOptions[0];
       this.applyModelSelection(preferred.provider, preferred.model);
     }
 
@@ -129,7 +143,9 @@ export class LLMClient {
 
     const options = await this.getModelOptions();
     const option = options.find(
-      candidate => candidate.provider === this.provider && candidate.model === this.modelName
+      (candidate) =>
+        candidate.provider === this.provider &&
+        candidate.model === this.modelName,
     );
 
     return {
@@ -140,7 +156,10 @@ export class LLMClient {
     };
   }
 
-  async setModelSelection(provider: LLMProvider, modelName: string): Promise<ModelSelection> {
+  async setModelSelection(
+    provider: LLMProvider,
+    modelName: string,
+  ): Promise<ModelSelection> {
     this.applyModelSelection(provider, modelName);
     return this.getModelSelection();
   }
@@ -148,7 +167,8 @@ export class LLMClient {
   private applyModelSelection(provider: LLMProvider, modelName: string): void {
     const nextModel = this.initializeModel(provider, modelName);
     if (!nextModel) {
-      const keyName = provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
+      const keyName =
+        provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
       throw new Error(`${keyName} is not configured.`);
     }
 
@@ -163,17 +183,30 @@ export class LLMClient {
   }
 
   private getModelLabel(provider: LLMProvider, modelName: string): string {
-    return modelName ? `${this.getProviderLabel(provider)} · ${modelName}` : `${this.getProviderLabel(provider)} · No model selected`;
+    return modelName
+      ? `${this.getProviderLabel(provider)} · ${modelName}`
+      : `${this.getProviderLabel(provider)} · No model selected`;
   }
 
-  private withCurrentModelOption(options: readonly ModelOption[]): readonly ModelOption[] {
+  private withCurrentModelOption(
+    options: readonly ModelOption[],
+  ): readonly ModelOption[] {
     if (!this.modelName) return options;
-    if (options.some(option => option.provider === this.provider && option.model === this.modelName)) {
+    if (
+      options.some(
+        (option) =>
+          option.provider === this.provider && option.model === this.modelName,
+      )
+    ) {
       return options;
     }
 
     return [
-      { provider: this.provider, model: this.modelName, label: this.getModelLabel(this.provider, this.modelName) },
+      {
+        provider: this.provider,
+        model: this.modelName,
+        label: this.getModelLabel(this.provider, this.modelName),
+      },
       ...options,
     ];
   }
@@ -187,15 +220,19 @@ export class LLMClient {
         headers: { Authorization: `Bearer ${apiKey}` },
       });
       if (!response.ok) {
-        console.error(`[LLMClient] OpenAI model list failed: ${response.status} ${response.statusText}`);
+        console.error(
+          `[LLMClient] OpenAI model list failed: ${response.status} ${response.statusText}`,
+        );
         return [];
       }
 
-      const payload = await response.json() as { data?: Array<{ id: string; created?: number }> };
+      const payload = (await response.json()) as {
+        data?: Array<{ id: string; created?: number }>;
+      };
       return (payload.data || [])
-        .filter(model => this.isOpenAIGenerationModel(model.id))
+        .filter((model) => this.isOpenAIGenerationModel(model.id))
         .sort((a, b) => this.compareOpenAIModels(a, b))
-        .map(model => ({
+        .map((model) => ({
           provider: "openai" as const,
           model: model.id,
           label: `OpenAI · ${model.id}`,
@@ -218,15 +255,23 @@ export class LLMClient {
         },
       });
       if (!response.ok) {
-        console.error(`[LLMClient] Anthropic model list failed: ${response.status} ${response.statusText}`);
+        console.error(
+          `[LLMClient] Anthropic model list failed: ${response.status} ${response.statusText}`,
+        );
         return [];
       }
 
-      const payload = await response.json() as { data?: Array<{ id: string; display_name?: string; created_at?: string }> };
+      const payload = (await response.json()) as {
+        data?: Array<{
+          id: string;
+          display_name?: string;
+          created_at?: string;
+        }>;
+      };
       return (payload.data || [])
-        .filter(model => model.id.toLowerCase().includes("claude"))
+        .filter((model) => model.id.toLowerCase().includes("claude"))
         .sort((a, b) => this.compareAnthropicModels(a, b))
-        .map(model => ({
+        .map((model) => ({
           provider: "anthropic" as const,
           model: model.id,
           label: `Claude · ${model.display_name || model.id}`,
@@ -252,12 +297,12 @@ export class LLMClient {
       "image",
       "search-preview",
     ];
-    return !excludedTerms.some(term => id.includes(term));
+    return !excludedTerms.some((term) => id.includes(term));
   }
 
   private compareOpenAIModels(
     a: { id: string; created?: number },
-    b: { id: string; created?: number }
+    b: { id: string; created?: number },
   ): number {
     const scoreDiff = this.scoreOpenAIModel(b.id) - this.scoreOpenAIModel(a.id);
     if (scoreDiff !== 0) return scoreDiff;
@@ -276,9 +321,10 @@ export class LLMClient {
 
   private compareAnthropicModels(
     a: { id: string; created_at?: string },
-    b: { id: string; created_at?: string }
+    b: { id: string; created_at?: string },
   ): number {
-    const scoreDiff = this.scoreAnthropicModel(b.id) - this.scoreAnthropicModel(a.id);
+    const scoreDiff =
+      this.scoreAnthropicModel(b.id) - this.scoreAnthropicModel(a.id);
     if (scoreDiff !== 0) return scoreDiff;
     return Date.parse(b.created_at || "") - Date.parse(a.created_at || "");
   }
@@ -292,8 +338,15 @@ export class LLMClient {
     return score;
   }
 
-  private selectPreferredModel(options: readonly ModelOption[], provider: LLMProvider): ModelOption | null {
-    return options.find(option => option.provider === provider) || options[0] || null;
+  private selectPreferredModel(
+    options: readonly ModelOption[],
+    provider: LLMProvider,
+  ): ModelOption | null {
+    return (
+      options.find((option) => option.provider === provider) ||
+      options[0] ||
+      null
+    );
   }
 
   private extractOpenAIModelVersion(value: string): number {
@@ -316,14 +369,14 @@ export class LLMClient {
   private logInitializationStatus(): void {
     if (this.model) {
       console.log(
-        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`
+        `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`,
       );
     } else {
       const keyName =
         this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
       console.error(
         `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-        `Please add your API key to the .env file in the project root.`
+          `Please add your API key to the .env file in the project root.`,
       );
     }
   }
@@ -358,14 +411,17 @@ export class LLMClient {
       if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
-          "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file."
+          "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
         );
         return;
       }
 
       await this.updateConversationSummary();
 
-      const messages = await this.prepareMessagesWithContext(request, screenshot);
+      const messages = await this.prepareMessagesWithContext(
+        request,
+        screenshot,
+      );
       await this.streamResponse(messages, request.messageId);
     } catch (error) {
       console.error("Error in LLM request:", error);
@@ -373,11 +429,17 @@ export class LLMClient {
     }
   }
 
-  async generateText(prompt: string, temperature?: number): Promise<string | null> {
+  async generateText(
+    prompt: string,
+    temperature?: number,
+  ): Promise<string | null> {
     if (!this.model) {
       await this.getModelOptions();
     }
-    if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
+    if (!this.model)
+      return this.buildAgentErrorResponse(
+        "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
+      );
     try {
       const result = await generateAIText({
         model: this.model,
@@ -393,11 +455,18 @@ export class LLMClient {
     }
   }
 
-  async generateVisionText(prompt: string, imageBase64: string, temperature?: number): Promise<string | null> {
+  async generateVisionText(
+    prompt: string,
+    imageBase64: string,
+    temperature?: number,
+  ): Promise<string | null> {
     if (!this.model) {
       await this.getModelOptions();
     }
-    if (!this.model) return this.buildAgentErrorResponse("LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.");
+    if (!this.model)
+      return this.buildAgentErrorResponse(
+        "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
+      );
     try {
       const messages = [
         {
@@ -444,7 +513,7 @@ export class LLMClient {
 
   private async prepareMessagesWithContext(
     request: ChatRequest,
-    screenshot: string | null
+    screenshot: string | null,
   ): Promise<CoreMessage[]> {
     let pageUrl: string | null = null;
     let pageText: string | null = null;
@@ -461,16 +530,21 @@ export class LLMClient {
       }
     }
 
-    const systemContent = this.buildSystemPrompt(pageUrl, pageText, request.message);
+    const systemContent = this.buildSystemPrompt(
+      pageUrl,
+      pageText,
+      request.message,
+    );
     const requestMessages = this.buildModelFacingMessages(screenshot);
 
-    return [
-      { role: "system", content: systemContent },
-      ...requestMessages
-    ];
+    return [{ role: "system", content: systemContent }, ...requestMessages];
   }
 
-  private buildSystemPrompt(url: string | null, pageText: string | null, userMessage: string): string {
+  private buildSystemPrompt(
+    url: string | null,
+    pageText: string | null,
+    userMessage: string,
+  ): string {
     const parts: string[] = [
       "You are a helpful AI assistant integrated into a web browser.",
       "You can analyze and discuss web pages with the user.",
@@ -487,13 +561,17 @@ export class LLMClient {
     }
 
     if (pageText) {
-      const pageContext = this.extractRelevantPageText(pageText, userMessage, MAX_PAGE_EXCERPT_LENGTH);
+      const pageContext = this.extractRelevantPageText(
+        pageText,
+        userMessage,
+        MAX_PAGE_EXCERPT_LENGTH,
+      );
       parts.push(`\nRelevant page text:\n${pageContext}`);
     }
 
     parts.push(
       "\nPlease provide helpful, accurate, and contextual responses about the current webpage.",
-      "If the user asks about specific content, refer to the page content and/or screenshot provided."
+      "If the user asks about specific content, refer to the page content and/or screenshot provided.",
     );
 
     return parts.join("\n");
@@ -508,35 +586,50 @@ export class LLMClient {
     const recentMessages = this.messages.slice(-MAX_RECENT_CHAT_MESSAGES);
     const latestIndex = recentMessages.length - 1;
 
-    return recentMessages.map((message, index) => {
-      const text = this.truncateText(this.getMessageText(message), MAX_MESSAGE_TEXT_LENGTH);
-      const isLatestUserMessage = index === latestIndex && message.role === "user";
+    return recentMessages
+      .map((message, index) => {
+        const text = this.truncateText(
+          this.getMessageText(message),
+          MAX_MESSAGE_TEXT_LENGTH,
+        );
+        const isLatestUserMessage =
+          index === latestIndex && message.role === "user";
 
-      if (isLatestUserMessage && screenshot) {
+        if (isLatestUserMessage && screenshot) {
+          return {
+            role: "user",
+            content: [
+              { type: "image", image: screenshot },
+              { type: "text", text },
+            ],
+          } as CoreMessage;
+        }
+
         return {
-          role: "user",
-          content: [
-            { type: "image", image: screenshot },
-            { type: "text", text },
-          ],
+          role: message.role,
+          content: text,
         } as CoreMessage;
-      }
-
-      return {
-        role: message.role,
-        content: text,
-      } as CoreMessage;
-    }).filter(message => this.getMessageText(message).trim().length > 0);
+      })
+      .filter((message) => this.getMessageText(message).trim().length > 0);
   }
 
   private async updateConversationSummary(): Promise<void> {
     if (this.messages.length < COMPACT_AFTER_MESSAGE_COUNT) return;
 
-    const summarizeUntil = Math.max(0, this.messages.length - MAX_RECENT_CHAT_MESSAGES);
+    const summarizeUntil = Math.max(
+      0,
+      this.messages.length - MAX_RECENT_CHAT_MESSAGES,
+    );
     if (summarizeUntil <= this.summarizedMessageCount) return;
 
-    const sourceMessages = this.messages.slice(this.summarizedMessageCount, summarizeUntil);
-    const sourceText = this.truncateText(this.formatMessagesForSummary(sourceMessages), SUMMARY_SOURCE_MAX_LENGTH);
+    const sourceMessages = this.messages.slice(
+      this.summarizedMessageCount,
+      summarizeUntil,
+    );
+    const sourceText = this.truncateText(
+      this.formatMessagesForSummary(sourceMessages),
+      SUMMARY_SOURCE_MAX_LENGTH,
+    );
     if (!sourceText.trim()) {
       this.summarizedMessageCount = summarizeUntil;
       return;
@@ -545,7 +638,7 @@ export class LLMClient {
     if (!this.model) {
       this.conversationSummary = this.truncateText(
         [this.conversationSummary, sourceText].filter(Boolean).join("\n"),
-        CONVERSATION_SUMMARY_MAX_LENGTH
+        CONVERSATION_SUMMARY_MAX_LENGTH,
       );
       this.summarizedMessageCount = summarizeUntil;
       return;
@@ -554,7 +647,8 @@ export class LLMClient {
     try {
       const result = await generateAIText({
         model: this.model,
-        system: "Summarize browser assistant conversation memory. Return concise plain text only.",
+        system:
+          "Summarize browser assistant conversation memory. Return concise plain text only.",
         prompt: [
           "Update the durable memory using the existing memory and new transcript.",
           "Keep user preferences, goals, decisions, facts discovered from pages, unresolved tasks, and important constraints.",
@@ -568,20 +662,31 @@ export class LLMClient {
         temperature: 0.2,
         maxRetries: 1,
       });
-      this.conversationSummary = this.truncateText(result.text.trim(), CONVERSATION_SUMMARY_MAX_LENGTH);
+      this.conversationSummary = this.truncateText(
+        result.text.trim(),
+        CONVERSATION_SUMMARY_MAX_LENGTH,
+      );
       this.summarizedMessageCount = summarizeUntil;
     } catch (error) {
       console.error("[LLMClient] Conversation summarization failed:", error);
-      const fallback = [this.conversationSummary, sourceText].filter(Boolean).join("\n");
-      this.conversationSummary = this.truncateText(fallback, CONVERSATION_SUMMARY_MAX_LENGTH);
+      const fallback = [this.conversationSummary, sourceText]
+        .filter(Boolean)
+        .join("\n");
+      this.conversationSummary = this.truncateText(
+        fallback,
+        CONVERSATION_SUMMARY_MAX_LENGTH,
+      );
       this.summarizedMessageCount = summarizeUntil;
     }
   }
 
   private formatMessagesForSummary(messages: readonly CoreMessage[]): string {
     return messages
-      .map(message => `${message.role}: ${this.truncateText(this.getMessageText(message), 1200)}`)
-      .filter(line => line.trim().length > 0)
+      .map(
+        (message) =>
+          `${message.role}: ${this.truncateText(this.getMessageText(message), 1200)}`,
+      )
+      .filter((line) => line.trim().length > 0)
       .join("\n");
   }
 
@@ -591,8 +696,14 @@ export class LLMClient {
     if (!Array.isArray(content)) return "";
 
     return content
-      .map(part => {
-        if (part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part) {
+      .map((part) => {
+        if (
+          part &&
+          typeof part === "object" &&
+          "type" in part &&
+          part.type === "text" &&
+          "text" in part
+        ) {
           return String(part.text);
         }
         return "";
@@ -601,19 +712,26 @@ export class LLMClient {
       .join("\n");
   }
 
-  private extractRelevantPageText(pageText: string, query: string, maxLength: number): string {
+  private extractRelevantPageText(
+    pageText: string,
+    query: string,
+    maxLength: number,
+  ): string {
     const normalized = this.normalizeWhitespace(pageText);
     if (normalized.length <= maxLength) return normalized;
 
     const terms = this.getQueryTerms(query);
     if (terms.length === 0) {
-      return this.truncateText(normalized, Math.min(MAX_PAGE_CONTEXT_LENGTH, maxLength));
+      return this.truncateText(
+        normalized,
+        Math.min(MAX_PAGE_CONTEXT_LENGTH, maxLength),
+      );
     }
 
     const paragraphs = normalized
       .split(/\n{2,}|(?<=[.!?])\s+(?=[A-Z0-9])/)
-      .map(part => part.trim())
-      .filter(part => part.length > 0);
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
 
     const scored = paragraphs
       .map((paragraph, index) => ({
@@ -621,14 +739,15 @@ export class LLMClient {
         index,
         score: this.scorePageParagraph(paragraph, terms),
       }))
-      .filter(item => item.score > 0)
+      .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score || a.index - b.index)
       .slice(0, 12)
       .sort((a, b) => a.index - b.index);
 
-    const selected = scored.length > 0
-      ? scored.map(item => item.paragraph).join("\n\n")
-      : normalized;
+    const selected =
+      scored.length > 0
+        ? scored.map((item) => item.paragraph).join("\n\n")
+        : normalized;
 
     return this.truncateText(selected, maxLength);
   }
@@ -643,20 +762,45 @@ export class LLMClient {
 
   private getQueryTerms(query: string): string[] {
     const stopWords = new Set([
-      "about", "after", "again", "also", "and", "any", "are", "can", "could",
-      "for", "from", "have", "how", "into", "please", "show", "tell", "that",
-      "the", "this", "was", "what", "when", "where", "which", "with", "you",
+      "about",
+      "after",
+      "again",
+      "also",
+      "and",
+      "any",
+      "are",
+      "can",
+      "could",
+      "for",
+      "from",
+      "have",
+      "how",
+      "into",
+      "please",
+      "show",
+      "tell",
+      "that",
+      "the",
+      "this",
+      "was",
+      "what",
+      "when",
+      "where",
+      "which",
+      "with",
+      "you",
       "your",
     ]);
 
-    return Array.from(new Set(
-      query
-        .toLowerCase()
-        .match(/[a-z0-9][a-z0-9-]{2,}/g) || []
-    )).filter(term => !stopWords.has(term));
+    return Array.from(
+      new Set(query.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) || []),
+    ).filter((term) => !stopWords.has(term));
   }
 
-  private scorePageParagraph(paragraph: string, terms: readonly string[]): number {
+  private scorePageParagraph(
+    paragraph: string,
+    terms: readonly string[],
+  ): number {
     const lower = paragraph.toLowerCase();
     return terms.reduce((score, term) => {
       const occurrences = lower.split(term).length - 1;
@@ -666,7 +810,7 @@ export class LLMClient {
 
   private async streamResponse(
     messages: CoreMessage[],
-    messageId: string
+    messageId: string,
   ): Promise<void> {
     if (!this.model) {
       await this.getModelOptions();
@@ -676,8 +820,12 @@ export class LLMClient {
       throw new Error("Model not initialized");
     }
 
-    const systemContent = messages[0].role === "system" ? messages[0].content as string : undefined;
-    const chatMessages = messages[0].role === "system" ? messages.slice(1) : messages;
+    const systemContent =
+      messages[0].role === "system"
+        ? (messages[0].content as string)
+        : undefined;
+    const chatMessages =
+      messages[0].role === "system" ? messages.slice(1) : messages;
 
     const result = await streamText({
       model: this.model,
@@ -692,7 +840,7 @@ export class LLMClient {
 
   private async processStream(
     textStream: AsyncIterable<string>,
-    messageId: string
+    messageId: string,
   ): Promise<void> {
     let accumulatedText = "";
 
@@ -777,12 +925,19 @@ export class LLMClient {
   }
 
   private isRateLimited(error: unknown): boolean {
-    return this.errorText(error).includes("429") || this.errorText(error).includes("rate limit");
+    return (
+      this.errorText(error).includes("429") ||
+      this.errorText(error).includes("rate limit")
+    );
   }
 
   private isProviderOverloaded(error: unknown): boolean {
     const text = this.errorText(error);
-    return text.includes("529") || text.includes("overloaded") || text.includes("overloaded_error");
+    return (
+      text.includes("529") ||
+      text.includes("overloaded") ||
+      text.includes("overloaded_error")
+    );
   }
 
   private errorText(error: unknown): string {

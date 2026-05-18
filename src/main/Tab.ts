@@ -62,7 +62,7 @@ export class Tab {
     return this._isVisible;
   }
 
-  get webContents() {
+  get webContents(): Electron.WebContents {
     return this.webContentsView.webContents;
   }
 
@@ -70,7 +70,7 @@ export class Tab {
     return this.webContentsView;
   }
 
-  get nativeWebContents() {
+  get nativeWebContents(): Electron.WebContents {
     return this.webContentsView.webContents;
   }
 
@@ -89,16 +89,20 @@ export class Tab {
     return await this.webContentsView.webContents.capturePage();
   }
 
-  async runJs(code: string): Promise<any> {
+  async runJs(code: string): Promise<unknown> {
     return await this.webContentsView.webContents.executeJavaScript(code);
   }
 
   async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+    return (await this.runJs(
+      "return document.documentElement.outerHTML",
+    )) as string;
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    return (await this.runJs(
+      "return document.documentElement.innerText",
+    )) as string;
   }
 
   async getTextViaCDP(): Promise<string | null> {
@@ -106,13 +110,13 @@ export class Tab {
       const debug = this.webContentsView.webContents.debugger;
 
       if (!debug.isAttached()) {
-        debug.attach('1.3');
+        debug.attach("1.3");
       }
 
       // Evaluate script via CDP - this runs in a different context
-      const { result } = await debug.sendCommand('Runtime.evaluate', {
-        expression: 'document.body.innerText',
-        returnByValue: true
+      const { result } = await debug.sendCommand("Runtime.evaluate", {
+        expression: "document.body.innerText",
+        returnByValue: true,
       });
 
       if (result && result.value) {

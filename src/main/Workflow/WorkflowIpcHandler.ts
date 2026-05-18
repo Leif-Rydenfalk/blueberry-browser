@@ -1,7 +1,7 @@
-import type { Window } from '../Window';
-import { WorkflowRecorder } from './WorkflowRecorder';
-import { WorkflowStore } from './WorkflowStore';
-import type { Workflow, WorkflowStep, RecordingState } from './WorkflowTypes';
+import type { Window } from "../Window";
+import { WorkflowRecorder } from "./WorkflowRecorder";
+import { WorkflowStore } from "./WorkflowStore";
+import type { Workflow, WorkflowStep, RecordingState } from "./WorkflowTypes";
 
 export class WorkflowIpcHandler {
   private readonly recorder: WorkflowRecorder;
@@ -15,14 +15,14 @@ export class WorkflowIpcHandler {
     this.recorder = new WorkflowRecorder();
     this.store = new WorkflowStore();
 
-    this.recorder.setOnUpdate(state => this.onUpdate?.(state));
-    this.recorder.setOnStepCaptured(step => this.onStepCaptured?.(step));
+    this.recorder.setOnUpdate((state) => this.onUpdate?.(state));
+    this.recorder.setOnStepCaptured((step) => this.onStepCaptured?.(step));
 
     // Hook into all existing tabs and any future ones
     this.recorder.hookAllTabs(window);
   }
 
-  hookNewTab(tab: import('../Tab').Tab): void {
+  hookNewTab(tab: import("../Tab").Tab): void {
     this.recorder.hookTab(tab);
   }
 
@@ -54,8 +54,8 @@ export class WorkflowIpcHandler {
   addAnnotation(text: string): boolean {
     if (!this.recorder.isRecording) return false;
     const tab = this.window.activeTab;
-    const url = tab?.url ?? '';
-    const title = tab?.title ?? '';
+    const url = tab?.url ?? "";
+    const title = tab?.title ?? "";
     this.recorder.addAnnotation(text, url, title);
     return true;
   }
@@ -64,7 +64,7 @@ export class WorkflowIpcHandler {
     return this.recorder.getState();
   }
 
-  getAllWorkflows() {
+  getAllWorkflows(): import("./WorkflowTypes").WorkflowSummary[] {
     return this.store.listSummaries();
   }
 
@@ -80,7 +80,10 @@ export class WorkflowIpcHandler {
     return this.store.rename(id, name);
   }
 
-  buildAgentPrompt(workflowId: string, userGoalOverride?: string): string | null {
+  buildAgentPrompt(
+    workflowId: string,
+    userGoalOverride?: string,
+  ): string | null {
     const workflow = this.store.load(workflowId);
     if (!workflow) return null;
 
@@ -96,12 +99,14 @@ export class WorkflowIpcHandler {
 
     let stepNum = 1;
     for (const step of workflow.steps) {
-      if (step.data.type === 'navigation') {
+      if (step.data.type === "navigation") {
         const p = step.data.payload;
-        lines.push(`${stepNum}. [${new Date(step.timestamp).toLocaleTimeString()}] Navigated to: ${p.toUrl}`);
+        lines.push(
+          `${stepNum}. [${new Date(step.timestamp).toLocaleTimeString()}] Navigated to: ${p.toUrl}`,
+        );
         if (p.pageTitle) lines.push(`   Page: "${p.pageTitle}"`);
         stepNum++;
-      } else if (step.data.type === 'annotation') {
+      } else if (step.data.type === "annotation") {
         lines.push(`   📝 User note: "${step.data.payload.text}"`);
       }
       // screenshots are omitted from prompt — they were captured for reference only
@@ -113,9 +118,11 @@ export class WorkflowIpcHandler {
     if (userGoalOverride) {
       lines.push(`Current goal: ${userGoalOverride}`);
     } else {
-      lines.push(`Goal: Reproduce this workflow exactly. Start at "${workflow.startUrl}", follow the same sequence of pages and actions. Use the user's notes as intent guidance. Adapt to the current state of each page as needed.`);
+      lines.push(
+        `Goal: Reproduce this workflow exactly. Start at "${workflow.startUrl}", follow the same sequence of pages and actions. Use the user's notes as intent guidance. Adapt to the current state of each page as needed.`,
+      );
     }
 
-    return lines.join('\n');
+    return lines.join("\n");
   }
 }

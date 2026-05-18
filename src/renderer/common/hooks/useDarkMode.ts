@@ -1,7 +1,10 @@
 import { useState, useEffect } from "react";
 
-export const useDarkMode = () => {
-  const [isDarkMode, setIsDarkMode] = useState(() => {
+export const useDarkMode = (): {
+  isDarkMode: boolean;
+  toggleDarkMode: () => void;
+} => {
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
     // Check if dark mode preference exists in localStorage
     const savedMode = localStorage.getItem("darkMode");
     if (savedMode !== null) {
@@ -30,7 +33,10 @@ export const useDarkMode = () => {
 
   // Listen for dark mode changes from other windows
   useEffect(() => {
-    const handleDarkModeUpdate = (_event: any, newDarkMode: boolean) => {
+    const handleDarkModeUpdate = (
+      _event: unknown,
+      newDarkMode: boolean,
+    ): void => {
       setIsDarkMode(newDarkMode);
     };
 
@@ -42,13 +48,13 @@ export const useDarkMode = () => {
       if (window.electron) {
         window.electron.ipcRenderer.removeListener(
           "dark-mode-updated",
-          handleDarkModeUpdate
+          handleDarkModeUpdate,
         );
       }
     };
   }, []);
 
-  const toggleDarkMode = () => {
+  const toggleDarkMode = (): void => {
     setIsDarkMode(!isDarkMode);
   };
 

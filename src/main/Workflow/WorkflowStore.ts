@@ -1,13 +1,13 @@
-import { app } from 'electron';
-import * as fs from 'fs';
-import * as path from 'path';
-import type { Workflow, WorkflowSummary } from './WorkflowTypes';
+import { app } from "electron";
+import * as fs from "fs";
+import * as path from "path";
+import type { Workflow, WorkflowSummary } from "./WorkflowTypes";
 
 export class WorkflowStore {
   private readonly dir: string;
 
   constructor() {
-    this.dir = path.join(app.getPath('userData'), 'workflows');
+    this.dir = path.join(app.getPath("userData"), "workflows");
     if (!fs.existsSync(this.dir)) {
       fs.mkdirSync(this.dir, { recursive: true });
     }
@@ -15,14 +15,14 @@ export class WorkflowStore {
 
   save(workflow: Workflow): void {
     const file = path.join(this.dir, `${workflow.id}.json`);
-    fs.writeFileSync(file, JSON.stringify(workflow, null, 2), 'utf-8');
+    fs.writeFileSync(file, JSON.stringify(workflow, null, 2), "utf-8");
   }
 
   load(id: string): Workflow | null {
     const file = path.join(this.dir, `${id}.json`);
     if (!fs.existsSync(file)) return null;
     try {
-      return JSON.parse(fs.readFileSync(file, 'utf-8')) as Workflow;
+      return JSON.parse(fs.readFileSync(file, "utf-8")) as Workflow;
     } catch (error) {
       console.error(`[WorkflowStore] Failed to load workflow ${id}:`, error);
       return null;
@@ -44,13 +44,13 @@ export class WorkflowStore {
   }
 
   listSummaries(): WorkflowSummary[] {
-    const files = fs.readdirSync(this.dir).filter(f => f.endsWith('.json'));
+    const files = fs.readdirSync(this.dir).filter((f) => f.endsWith(".json"));
     const summaries: WorkflowSummary[] = [];
 
     for (const file of files) {
       try {
         const workflow = JSON.parse(
-          fs.readFileSync(path.join(this.dir, file), 'utf-8')
+          fs.readFileSync(path.join(this.dir, file), "utf-8"),
         ) as Workflow;
         summaries.push({
           id: workflow.id,

@@ -8,7 +8,9 @@ interface TabInfo {
 }
 
 interface TopBarAPI {
-  createTab: (url?: string) => Promise<{ id: string; title: string; url: string } | null>;
+  createTab: (
+    url?: string,
+  ) => Promise<{ id: string; title: string; url: string } | null>;
   closeTab: (tabId: string) => Promise<boolean>;
   switchTab: (tabId: string) => Promise<boolean>;
   getTabs: () => Promise<TabInfo[]>;
@@ -17,7 +19,7 @@ interface TopBarAPI {
   goForward: (tabId: string) => Promise<void>;
   reload: (tabId: string) => Promise<void>;
   tabScreenshot: (tabId: string) => Promise<string | null>;
-  tabRunJs: (tabId: string, code: string) => Promise<any>;
+  tabRunJs: (tabId: string, code: string) => Promise<unknown>;
   toggleSidebar: () => Promise<void>;
   platform: NodeJS.Platform;
 }

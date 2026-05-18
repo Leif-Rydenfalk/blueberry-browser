@@ -24,7 +24,7 @@ export class SingleTabStrategy implements TabStrategy {
 
   async getActiveContext(
     goal: string,
-    history: ReadonlyArray<import("../types/AgentTypes").AgentStep>
+    history: ReadonlyArray<import("../types/AgentTypes").AgentStep>,
   ): Promise<AgentContext> {
     const [screenshot, pageText, currentUrl] = await Promise.all([
       this.captureScreenshot(),
@@ -67,7 +67,7 @@ export class SingleTabStrategy implements TabStrategy {
       if (cdpText && cdpText.length > 0) {
         return cdpText;
       }
-    } catch (e) {
+    } catch {
       console.log("[SingleTabStrategy] CDP failed, trying other methods...");
     }
 

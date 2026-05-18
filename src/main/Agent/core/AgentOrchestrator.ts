@@ -37,7 +37,8 @@ export class AgentOrchestrator {
       temperature: 0.7,
       strategy: request.mode,
       maxDurationMs: this.getMaxDurationMs(profile),
-      loopMode: longRunning || this.hasAny(request.goal, ["while", "until", "repeat"]),
+      loopMode:
+        longRunning || this.hasAny(request.goal, ["while", "until", "repeat"]),
       taskProfile: profile,
       targetPaceMs: profile === "repetitive" ? 1200 : 700,
     };
@@ -71,7 +72,11 @@ export class AgentOrchestrator {
     runner.setCallbacks(
       (update) => {
         const enrichedUpdate = { ...update, sessionId };
-        console.log("[AgentOrchestrator] Emitting update:", enrichedUpdate.action.type, enrichedUpdate.status);
+        console.log(
+          "[AgentOrchestrator] Emitting update:",
+          enrichedUpdate.action.type,
+          enrichedUpdate.status,
+        );
         this.onStreamUpdate?.(enrichedUpdate);
 
         // Update session
@@ -120,7 +125,7 @@ export class AgentOrchestrator {
           sessionId,
         });
         this.activeRunner = null;
-      }
+      },
     );
 
     // Start the agent loop
@@ -177,34 +182,40 @@ export class AgentOrchestrator {
   }
 
   private classifyTask(goal: string): AgentTaskProfile {
-    if (this.hasAny(goal, [
-      "scroll",
-      "like",
-      "linkedin feed",
-      "tiktok",
-      "instagram",
-      "for a while",
-      "repetitive",
-      "repeat",
-    ])) {
+    if (
+      this.hasAny(goal, [
+        "scroll",
+        "like",
+        "linkedin feed",
+        "tiktok",
+        "instagram",
+        "for a while",
+        "repetitive",
+        "repeat",
+      ])
+    ) {
       return "repetitive";
     }
 
-    if (this.hasAny(goal, [
-      "inbox",
-      "email",
-      "mail",
-      "gmail",
-      "outlook",
-      "reply",
-      "respond",
-      "message",
-      "dm",
-    ])) {
+    if (
+      this.hasAny(goal, [
+        "inbox",
+        "email",
+        "mail",
+        "gmail",
+        "outlook",
+        "reply",
+        "respond",
+        "message",
+        "dm",
+      ])
+    ) {
       return "communication";
     }
 
-    if (this.hasAny(goal, ["find", "research", "compare", "look up", "browse"])) {
+    if (
+      this.hasAny(goal, ["find", "research", "compare", "look up", "browse"])
+    ) {
       return "research";
     }
 
@@ -212,7 +223,9 @@ export class AgentOrchestrator {
   }
 
   private getMaxSteps(profile: AgentTaskProfile, goal: string): number {
-    const explicitCount = goal.match(/\b(\d{1,3})\s+(videos?|posts?|emails?|messages?|items?|times?|likes?|replies?)\b/i);
+    const explicitCount = goal.match(
+      /\b(\d{1,3})\s+(videos?|posts?|emails?|messages?|items?|times?|likes?|replies?)\b/i,
+    );
     if (explicitCount) {
       const requested = Number(explicitCount[1]);
       if (Number.isFinite(requested) && requested > 0) {
@@ -249,6 +262,6 @@ export class AgentOrchestrator {
 
   private hasAny(text: string, needles: readonly string[]): boolean {
     const lower = text.toLowerCase();
-    return needles.some(needle => lower.includes(needle));
+    return needles.some((needle) => lower.includes(needle));
   }
 }

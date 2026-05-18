@@ -22,7 +22,7 @@ interface AgentSessionRequest {
     readonly pageUrl: string | null;
     readonly pageText: string | null;
   };
-  readonly mode: 'single-tab' | 'multi-tab';
+  readonly mode: "single-tab" | "multi-tab";
 }
 
 interface AgentStreamUpdate {
@@ -33,7 +33,7 @@ interface AgentStreamUpdate {
     readonly params: Record<string, unknown>;
     readonly reasoning: string;
   };
-  readonly status: 'pending' | 'running' | 'success' | 'error';
+  readonly status: "pending" | "running" | "success" | "error";
   readonly result?: {
     readonly success: boolean;
     readonly data?: unknown;
@@ -44,7 +44,7 @@ interface AgentStreamUpdate {
 }
 
 interface ModelOption {
-  readonly provider: 'openai' | 'anthropic';
+  readonly provider: "openai" | "anthropic";
   readonly model: string;
   readonly label: string;
 }
@@ -61,7 +61,10 @@ interface WorkflowStep {
   readonly timestamp: number;
   readonly url: string;
   readonly pageTitle: string;
-  readonly data: { readonly type: string; readonly payload: Record<string, unknown> };
+  readonly data: {
+    readonly type: string;
+    readonly payload: Record<string, unknown>;
+  };
 }
 
 interface WorkflowSummary {
@@ -89,22 +92,29 @@ interface TabInfo {
 interface SidebarAPI {
   sendChatMessage: (request: Partial<ChatRequest>) => Promise<void>;
   clearChat: () => Promise<void>;
-  getMessages: () => Promise<any[]>;
+  getMessages: () => Promise<unknown[]>;
   getModelOptions: () => Promise<ModelOption[]>;
   getModelSelection: () => Promise<ModelSelection>;
-  setModelSelection: (selection: Pick<ModelSelection, "provider" | "model">) => Promise<ModelSelection>;
+  setModelSelection: (
+    selection: Pick<ModelSelection, "provider" | "model">,
+  ) => Promise<ModelSelection>;
   onChatResponse: (callback: (data: ChatResponse) => void) => void;
   removeChatResponseListener: () => void;
-  onMessagesUpdated: (callback: (messages: any[]) => void) => void;
+  onMessagesUpdated: (callback: (messages: unknown[]) => void) => void;
   removeMessagesUpdatedListener: () => void;
   getPageContent: () => Promise<string | null>;
   getPageText: () => Promise<string | null>;
   getCurrentUrl: () => Promise<string | null>;
   getActiveTabInfo: () => Promise<TabInfo | null>;
-  startAgentSession: (request: AgentSessionRequest) => Promise<{ sessionId: string; status: string }>;
+  startAgentSession: (
+    request: AgentSessionRequest,
+  ) => Promise<{ sessionId: string; status: string }>;
   abortAgentSession: () => Promise<boolean>;
   sendMessageToAgent: (message: string) => Promise<boolean>;
-  getAgentStatus: () => Promise<{ isRunning: boolean; activeSession: string | null }>;
+  getAgentStatus: () => Promise<{
+    isRunning: boolean;
+    activeSession: string | null;
+  }>;
   onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => void;
   removeAgentUpdateListener: () => void;
   // Workflow
@@ -117,8 +127,13 @@ interface SidebarAPI {
   getWorkflow: (id: string) => Promise<unknown>;
   deleteWorkflow: (id: string) => Promise<boolean>;
   renameWorkflow: (id: string, name: string) => Promise<boolean>;
-  executeWorkflow: (id: string, goalOverride?: string) => Promise<{ sessionId: string; status: string } | { error: string }>;
-  onWorkflowRecordingUpdate: (callback: (state: RecordingState) => void) => void;
+  executeWorkflow: (
+    id: string,
+    goalOverride?: string,
+  ) => Promise<{ sessionId: string; status: string } | { error: string }>;
+  onWorkflowRecordingUpdate: (
+    callback: (state: RecordingState) => void,
+  ) => void;
   removeWorkflowRecordingUpdateListener: () => void;
   onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => void;
   removeWorkflowStepCapturedListener: () => void;
@@ -131,4 +146,4 @@ declare global {
   }
 }
 
-export { };
+export {};
