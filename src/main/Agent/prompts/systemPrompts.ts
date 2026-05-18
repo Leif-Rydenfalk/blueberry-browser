@@ -11,6 +11,8 @@ export function buildReActPrompt(context: AgentContext): string {
     stepBudget,
     elapsedMs,
     remainingMs,
+    interactiveElements,
+    tabs,
   } = context;
   const memory = (context as AgentContext & { memory?: string }).memory;
 
@@ -19,18 +21,27 @@ export function buildReActPrompt(context: AgentContext): string {
   const historyText =
     recentHistory.length > 0
       ? recentHistory
-          .map((step, i) => {
-            const resultStr = step.result.success
-              ? `${compactValue(step.result.data, 140)}`
-              : `Error: ${step.result.error.substring(0, 140)}`;
-            return `${i + 1}. ${step.action.type}: ${resultStr}`;
-          })
-          .join("\n")
+        .map((step, i) => {
+          const resultStr = step.result.success
+            ? `${compactValue(step.result.data, 140)}`
+            : `Error: ${step.result.error.substring(0, 140)}`;
+          return `${i + 1}. ${step.action.type}: ${resultStr}`;
+        })
+        .join("\n")
       : "No previous actions.";
 
   const pageContext = pageText
-    ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2200)}`
+    ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2000)}`
     : "";
+
+  const elementsContext = interactiveElements
+    ? `\nInteractive elements (use these exact selectors — do not guess):\n${interactiveElements.substring(0, 1800)}`
+    : "";
+
+  const tabsContext =
+    tabs && tabs.length > 1
+      ? `\nOpen tabs:\n${tabs.map((t) => `[${t.index}]${t.isActive ? " ★" : ""} "${t.title}" ${t.url.substring(0, 80)}`).join("\n")}`
+      : "";
 
   const memoryContext = memory ? `\nWorking memory:\n${memory}` : "";
 
@@ -47,6 +58,19 @@ DEFAULT BEHAVIOR:
 - Do not navigate away from an already relevant page unless the user explicitly asks you to search, browse elsewhere, or open another site.
 - Short phrases like "gmail status report" while Gmail is open mean "report what you can see/status from this Gmail page", not "search the web for that phrase".
 - Only use Google/search navigation when the current page is not relevant or the user asks for web research/current external information.
+
+USING INTERACTIVE ELEMENTS:
+- The "Interactive elements" list shows every clickable/typeable element on the page with its exact CSS selector.
+- Always prefer selectors from this list over guessing. Use the selector verbatim.
+- For <select> dropdowns, use the select action with the value or text shown in opts=[...].
+- If an element is not in the list, it is likely off-screen — scroll first, then re-check on the next step.
+- For iframes (payment forms, embedded widgets), add "frame":"iframe-css-selector" to click/type/extract/select.
+
+MULTI-TAB WORKFLOWS:
+- Use newTab to open a link in a new tab (agent auto-switches to it).
+- Use switchTab with the index shown in "Open tabs" to move between tabs.
+- Use closeTab to clean up tabs you no longer need.
+- When a task requires comparing pages or keeping a reference open, open a second tab.
 
 FOR TIKTOK / SCROLLING TASKS:
 - TikTok blocks JavaScript injection. Use native interactions with coordinates.
@@ -72,28 +96,40 @@ INBOX / MESSAGE TASKS:
 - If the user asked you to reply/respond/send mail in this run, you may click Send only after the composed text is visible and matches the thread. Otherwise draft and finish with what you prepared.
 - Never mass-message people or post comments unless the user explicitly requested that exact action.
 
+NAVIGATION:
+- Use back/forward instead of re-navigating to a URL when going back in history.
+- Use waitForSelector after navigations or clicks that trigger dynamic content loading.
+
 If the user asks a simple greeting or casual question (like "whats up dawg?") you can answer directly, use finish with a friendly response.
 If the user asks for information that is not available on the current page, browse the web to find it.
 
 Task: ${goal}${runContext}
-URL: ${currentUrl || "unknown"}${memoryContext}${pageContext}
+URL: ${currentUrl || "unknown"}${tabsContext}${memoryContext}${elementsContext}${pageContext}
 
 Recent actions:
 ${historyText}
 
-Available actions (JSON only):
+Available actions (ONE JSON object only, no markdown):
 - navigate: {"type":"navigate","params":{"url":"..."},"reasoning":"..."}
-- click: {"type":"click","params":{"selector":"css-selector","x":100,"y":200},"reasoning":"..."} (selector or x/y may be used)
-- type: {"type":"type","params":{"selector":"css-selector","text":"...","clearFirst":true},"reasoning":"..."} (selector or x/y may be used)
-- key: {"type":"key","params":{"key":"ArrowDown","modifiers":[]},"reasoning":"..."}
+- click: {"type":"click","params":{"selector":"...","x":0,"y":0,"frame":"iframe#id"},"reasoning":"..."} (selector or x/y; frame optional)
+- type: {"type":"type","params":{"selector":"...","text":"...","clearFirst":true,"frame":"iframe#id"},"reasoning":"..."} (frame optional)
+- key: {"type":"key","params":{"key":"Enter","modifiers":[]},"reasoning":"..."}
 - scroll: {"type":"scroll","params":{"direction":"down","amount":500},"reasoning":"..."}
 - wait: {"type":"wait","params":{"duration":1000},"reasoning":"..."}
-- extract: {"type":"extract","params":{"selector":"css-selector","attribute":"text","name":"key"},"reasoning":"..."}
+- waitForSelector: {"type":"waitForSelector","params":{"selector":"...","timeout":5000,"visible":true},"reasoning":"..."}
+- extract: {"type":"extract","params":{"selector":"...","attribute":"text","name":"key","frame":"iframe#id"},"reasoning":"..."} (frame optional)
+- select: {"type":"select","params":{"selector":"select#id","value":"option-value","frame":"iframe#id"},"reasoning":"..."} (frame optional)
+- hover: {"type":"hover","params":{"selector":"nav.menu","x":0,"y":0},"reasoning":"..."} (selector or x/y)
+- back: {"type":"back","params":{},"reasoning":"..."}
+- forward: {"type":"forward","params":{},"reasoning":"..."}
+- newTab: {"type":"newTab","params":{"url":"https://..."},"reasoning":"..."}
+- switchTab: {"type":"switchTab","params":{"index":1},"reasoning":"..."}
+- closeTab: {"type":"closeTab","params":{"index":0},"reasoning":"..."}
 - finish: {"type":"finish","params":{"answer":"..."},"reasoning":"..."}
 
 CRITICAL RULES:
 1. ONE JSON object only. No markdown outside JSON.
-2. If clicks fail due to CSP, include x,y coordinates (from previous successful screenshot analysis) in your next click attempt.
+2. Prefer selectors from the interactive elements list. Fall back to x,y coordinates for CSP-blocked pages.
 3. If you see "CSP_BLOCKED", use finish IMMEDIATELY with your best answer from what you've observed.
 4. NEVER request screenshot — I automatically capture the page after every action.
 5. For quick tasks, if stuck after 2 failed actions, use finish with your best answer. For loop/long tasks, recover, skip, scroll, wait, or use coordinates before finishing.

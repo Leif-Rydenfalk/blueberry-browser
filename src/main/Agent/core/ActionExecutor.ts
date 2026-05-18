@@ -3,6 +3,15 @@ import type {
   AgentAction,
   ActionResult,
   ActionType,
+  ClickParams,
+  TypeParams,
+  KeyParams,
+  ScrollParams,
+  WaitParams,
+  ExtractParams,
+  SelectParams,
+  HoverParams,
+  WaitForSelectorParams,
 } from "../types/AgentTypes";
 
 // Shape returned by inline JS scripts injected into the page
@@ -27,54 +36,19 @@ export class ActionExecutor {
     try {
       switch (action.type) {
         case "navigate":
-          return await this.executeNavigate(
-            tab,
-            action.params as { url: string },
-          );
+          return await this.executeNavigate(tab, action.params as { url: string });
         case "click":
-          return await this.executeClick(
-            tab,
-            action.params as { selector?: string; x?: number; y?: number },
-          );
+          return await this.executeClick(tab, action.params as ClickParams);
         case "type":
-          return await this.executeType(
-            tab,
-            action.params as {
-              selector?: string;
-              text: string;
-              clearFirst?: boolean;
-              x?: number;
-              y?: number;
-            },
-          );
+          return await this.executeType(tab, action.params as TypeParams);
         case "key":
-          return await this.executeKey(
-            tab,
-            action.params as {
-              key: string;
-              modifiers?: Array<"control" | "shift" | "alt" | "meta">;
-            },
-          );
+          return await this.executeKey(tab, action.params as KeyParams);
         case "scroll":
-          return await this.executeScroll(
-            tab,
-            action.params as {
-              direction: string;
-              amount?: number;
-              selector?: string;
-            },
-          );
+          return await this.executeScroll(tab, action.params as ScrollParams);
         case "wait":
-          return await this.executeWait(action.params as { duration?: number });
+          return await this.executeWait(action.params as WaitParams);
         case "extract":
-          return await this.executeExtract(
-            tab,
-            action.params as {
-              selector: string;
-              attribute?: string;
-              name: string;
-            },
-          );
+          return await this.executeExtract(tab, action.params as ExtractParams);
         case "screenshot": {
           const image = await tab.screenshot();
           return { success: true, data: { screenshot: image.toDataURL() } };
@@ -87,6 +61,16 @@ export class ActionExecutor {
               answer: (action.params as { answer?: string }).answer,
             },
           };
+        case "select":
+          return await this.executeSelect(tab, action.params as SelectParams);
+        case "hover":
+          return await this.executeHover(tab, action.params as HoverParams);
+        case "back":
+          return await this.executeBack(tab);
+        case "forward":
+          return await this.executeForward(tab);
+        case "waitForSelector":
+          return await this.executeWaitForSelector(tab, action.params as WaitForSelectorParams);
         default:
           return {
             success: false,
@@ -116,17 +100,14 @@ export class ActionExecutor {
 
   private async executeClick(
     tab: Tab,
-    params: { selector?: string; x?: number; y?: number },
+    params: ClickParams,
   ): Promise<ActionResult> {
-    // For TikTok and CSP sites, use native click with coordinates
-    if (params.x !== undefined && params.y !== undefined) {
+    // Native click via coordinates — works on CSP sites; skip when targeting an iframe
+    if (!params.frame && params.x !== undefined && params.y !== undefined) {
       try {
         await this.nativeClick(tab, params.x, params.y);
         await this.sleep(300);
-        return {
-          success: true,
-          data: { method: "native", x: params.x, y: params.y },
-        };
+        return { success: true, data: { method: "native", x: params.x, y: params.y } };
       } catch {
         console.log("[ActionExecutor] Native click failed, trying JS fallback");
       }
@@ -140,12 +121,13 @@ export class ActionExecutor {
       };
     }
 
+    const frameSetup = this.resolveDocJs(params.frame);
     try {
-      // Try standard JS click first
       const code = `
         (function() {
           try {
-            const el = document.querySelector(${JSON.stringify(params.selector)});
+            ${frameSetup}
+            const el = __doc.querySelector(${JSON.stringify(params.selector)});
             if (!el) return { error: "Element not found" };
             el.scrollIntoView({ behavior: 'smooth', block: 'center' });
             const rect = el.getBoundingClientRect();
@@ -162,40 +144,24 @@ export class ActionExecutor {
         return { success: true, data: result };
       }
 
-      // If JS click failed, try native click using coordinates
-      if (result && result.x && result.y) {
+      // JS click failed — try native click using element coords (main frame only)
+      if (!params.frame && result?.x && result?.y) {
         await this.nativeClick(tab, result.x, result.y);
         await this.sleep(500);
-        return {
-          success: true,
-          data: { method: "native", x: result.x, y: result.y },
-        };
+        return { success: true, data: { method: "native", x: result.x, y: result.y } };
       }
 
-      return {
-        success: false,
-        error: result?.error || "Click failed",
-        recoverable: true,
-      };
+      return { success: false, error: result?.error || "Click failed", recoverable: true };
     } catch (error) {
-      // CSP error - try native click if we have coordinates
-      if (params.x !== undefined && params.y !== undefined) {
+      if (!params.frame && params.x !== undefined && params.y !== undefined) {
         try {
           await this.nativeClick(tab, params.x, params.y);
           await this.sleep(500);
-          return {
-            success: true,
-            data: { method: "native_fallback", x: params.x, y: params.y },
-          };
+          return { success: true, data: { method: "native_fallback", x: params.x, y: params.y } };
         } catch {
-          return {
-            success: false,
-            error: "Native click also failed",
-            recoverable: false,
-          };
+          return { success: false, error: "Native click also failed", recoverable: false };
         }
       }
-
       const msg = error instanceof Error ? error.message : "Click failed";
       return { success: false, error: msg, recoverable: true };
     }
@@ -203,13 +169,7 @@ export class ActionExecutor {
 
   private async executeType(
     tab: Tab,
-    params: {
-      selector?: string;
-      text: string;
-      clearFirst?: boolean;
-      x?: number;
-      y?: number;
-    },
+    params: TypeParams,
   ): Promise<ActionResult> {
     const selector = params.selector;
     if (!selector && (params.x === undefined || params.y === undefined)) {
@@ -220,15 +180,13 @@ export class ActionExecutor {
       };
     }
 
-    if (params.x !== undefined && params.y !== undefined) {
+    // Native path — coordinates only, no frame support needed
+    if (!params.frame && params.x !== undefined && params.y !== undefined) {
       await this.nativeClick(tab, params.x, params.y);
       await this.sleep(120);
       await this.nativeType(tab, params.text);
       await this.sleep(300);
-      return {
-        success: true,
-        data: { method: "native", x: params.x, y: params.y },
-      };
+      return { success: true, data: { method: "native", x: params.x, y: params.y } };
     }
 
     if (!selector) {
@@ -239,9 +197,11 @@ export class ActionExecutor {
       };
     }
 
+    const frameSetup = this.resolveDocJs(params.frame);
     const code = `
       (function() {
-        const el = document.querySelector(${JSON.stringify(selector)});
+        ${frameSetup}
+        const el = __doc.querySelector(${JSON.stringify(selector)});
         if (!el) return { error: "Element not found: ${selector.replace(/"/g, '\\"')}" };
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.focus();
@@ -298,12 +258,9 @@ export class ActionExecutor {
 
   private async executeKey(
     tab: Tab,
-    params: {
-      key: string;
-      modifiers?: Array<"control" | "shift" | "alt" | "meta">;
-    },
+    params: KeyParams,
   ): Promise<ActionResult> {
-    await this.nativeKey(tab, params.key, params.modifiers || []);
+    await this.nativeKey(tab, params.key, (params.modifiers as Array<"control" | "shift" | "alt" | "meta">) || []);
     await this.sleep(250);
     return {
       success: true,
@@ -313,7 +270,7 @@ export class ActionExecutor {
 
   private async executeScroll(
     tab: Tab,
-    params: { direction: string; amount?: number; selector?: string },
+    params: ScrollParams,
   ): Promise<ActionResult> {
     if (params.selector) {
       const code = `
@@ -346,9 +303,139 @@ export class ActionExecutor {
     };
   }
 
-  private async executeWait(params: {
-    duration?: number;
-  }): Promise<ActionResult> {
+  private async executeSelect(
+    tab: Tab,
+    params: SelectParams,
+  ): Promise<ActionResult> {
+    const frameSetup = this.resolveDocJs(params.frame);
+    const code = `
+      (function() {
+        ${frameSetup}
+        var el = __doc.querySelector(${JSON.stringify(params.selector)});
+        if (!el) return { error: "Select element not found: " + ${JSON.stringify(params.selector)} };
+        if (el.tagName !== 'SELECT') return { error: "Element is not a <select>: " + ${JSON.stringify(params.selector)} };
+        var val = ${JSON.stringify(params.value)};
+        var opt = Array.from(el.options).find(function(o) {
+          return o.value === val || o.text.trim().toLowerCase().includes(val.toLowerCase());
+        });
+        if (!opt) return { error: "Option not found: " + val + ". Available: " + Array.from(el.options).map(function(o){ return o.value; }).join(', ') };
+        el.value = opt.value;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        return { success: true, selected: opt.value, text: opt.text };
+      })()
+    `;
+    try {
+      const result = (await tab.runJs(code)) as JsResult;
+      if (result?.error) {
+        return { success: false, error: result.error, recoverable: true };
+      }
+      await this.sleep(300);
+      return { success: true, data: result };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Select failed";
+      return { success: false, error: msg, recoverable: true };
+    }
+  }
+
+  private async executeHover(
+    tab: Tab,
+    params: HoverParams,
+  ): Promise<ActionResult> {
+    let targetX = params.x;
+    let targetY = params.y;
+
+    if (params.selector && (targetX === undefined || targetY === undefined)) {
+      const code = `
+        (function() {
+          var el = document.querySelector(${JSON.stringify(params.selector)});
+          if (!el) return { error: "Element not found" };
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          var r = el.getBoundingClientRect();
+          return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+        })()
+      `;
+      try {
+        const result = (await tab.runJs(code)) as { x?: number; y?: number; error?: string };
+        if (result?.error) {
+          return { success: false, error: result.error, recoverable: true };
+        }
+        targetX = result.x;
+        targetY = result.y;
+      } catch {
+        return { success: false, error: "Could not locate element for hover", recoverable: true };
+      }
+    }
+
+    if (targetX === undefined || targetY === undefined) {
+      return { success: false, error: "Hover needs a selector or x,y coordinates", recoverable: true };
+    }
+
+    // sendInputEvent mouseMove triggers Chromium's internal hover state (CSS :hover)
+    const wc = tab.nativeWebContents;
+    wc.sendInputEvent({ type: "mouseMove", x: targetX, y: targetY });
+    await this.sleep(400);
+    return { success: true, data: { x: targetX, y: targetY } };
+  }
+
+  private async executeBack(tab: Tab): Promise<ActionResult> {
+    tab.goBack();
+    await this.sleep(1500);
+    return { success: true, data: { navigated: "back" } };
+  }
+
+  private async executeForward(tab: Tab): Promise<ActionResult> {
+    tab.goForward();
+    await this.sleep(1500);
+    return { success: true, data: { navigated: "forward" } };
+  }
+
+  private async executeWaitForSelector(
+    tab: Tab,
+    params: WaitForSelectorParams,
+  ): Promise<ActionResult> {
+    const timeout = params.timeout ?? 10000;
+    const start = Date.now();
+    const poll = 250;
+
+    while (Date.now() - start < timeout) {
+      try {
+        const code = `
+          (function() {
+            var el = document.querySelector(${JSON.stringify(params.selector)});
+            if (!el) return false;
+            ${params.visible ? "var r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0;" : "return true;"}
+          })()
+        `;
+        const found = (await tab.runJs(code)) as boolean;
+        if (found) {
+          return { success: true, data: { selector: params.selector, waitedMs: Date.now() - start } };
+        }
+      } catch {
+        // page may be mid-navigation — keep polling
+      }
+      await this.sleep(poll);
+    }
+
+    return {
+      success: false,
+      error: `"${params.selector}" not found after ${timeout}ms`,
+      recoverable: true,
+    };
+  }
+
+  // Returns a JS snippet that sets __doc to either document or an iframe's contentDocument.
+  private resolveDocJs(frame: string | undefined): string {
+    if (!frame) return "var __doc = document;";
+    return `
+      var __iframe = document.querySelector(${JSON.stringify(frame)});
+      if (!__iframe) return { error: "Frame not found: " + ${JSON.stringify(frame)} };
+      var __doc = __iframe.contentDocument || (__iframe.contentWindow && __iframe.contentWindow.document);
+      if (!__doc) return { error: "Cannot access frame (cross-origin or not loaded)" };
+    `;
+  }
+
+  private async executeWait(params: WaitParams): Promise<ActionResult> {
     const duration = params.duration || 1000;
     await this.sleep(duration);
     return { success: true, data: { waited: duration } };
@@ -356,14 +443,16 @@ export class ActionExecutor {
 
   private async executeExtract(
     tab: Tab,
-    params: { selector: string; attribute?: string; name: string },
+    params: ExtractParams,
   ): Promise<ActionResult> {
     try {
       const attr = params.attribute || "text";
+      const frameSetup = this.resolveDocJs(params.frame);
       const code = `
         (function() {
           try {
-            const elements = document.querySelectorAll(${JSON.stringify(params.selector)});
+            ${frameSetup}
+            const elements = __doc.querySelectorAll(${JSON.stringify(params.selector)});
             if (elements.length === 0) return { error: "No elements found", count: 0 };
             const results = Array.from(elements).map(el => {
               if (${JSON.stringify(attr)} === 'text') return el.textContent?.trim();
@@ -385,7 +474,6 @@ export class ActionExecutor {
     } catch (error) {
       const msg =
         error instanceof Error ? error.message : "Script execution blocked";
-      // Check if it's a CSP error
       const isCSP =
         msg.includes("Script failed to execute") ||
         msg.includes("CSP") ||
@@ -449,21 +537,17 @@ export class ActionExecutor {
   async nativeKey(
     tab: Tab,
     key: string,
-    modifiers: Array<"control" | "shift" | "alt" | "meta">,
+    modifiers: ReadonlyArray<"control" | "shift" | "alt" | "meta">,
   ): Promise<void> {
     const wc = tab.nativeWebContents;
     if (!wc) throw new Error("No webContents available");
 
     const normalizedModifiers = modifiers.map((modifier) => {
       switch (modifier) {
-        case "control":
-          return "control";
-        case "shift":
-          return "shift";
-        case "alt":
-          return "alt";
-        case "meta":
-          return "meta";
+        case "control": return "control";
+        case "shift": return "shift";
+        case "alt": return "alt";
+        case "meta": return "meta";
       }
     });
 

@@ -7,7 +7,15 @@ export type ActionType =
   | "wait"
   | "extract"
   | "screenshot"
-  | "finish";
+  | "finish"
+  | "select"
+  | "hover"
+  | "back"
+  | "forward"
+  | "newTab"
+  | "switchTab"
+  | "closeTab"
+  | "waitForSelector";
 
 export interface NavigateParams {
   readonly url: string;
@@ -16,6 +24,7 @@ export interface ClickParams {
   readonly selector?: string;
   readonly x?: number;
   readonly y?: number;
+  readonly frame?: string;
 }
 export interface TypeParams {
   readonly selector?: string;
@@ -23,6 +32,7 @@ export interface TypeParams {
   readonly clearFirst?: boolean;
   readonly x?: number;
   readonly y?: number;
+  readonly frame?: string;
 }
 export interface KeyParams {
   readonly key: string;
@@ -42,6 +52,48 @@ export interface ExtractParams {
   readonly selector: string;
   readonly attribute?: "text" | "html" | "value";
   readonly name: string;
+  readonly frame?: string;
+}
+
+export interface SelectParams {
+  readonly selector: string;
+  readonly value: string;
+  readonly frame?: string;
+}
+
+export interface HoverParams {
+  readonly selector?: string;
+  readonly x?: number;
+  readonly y?: number;
+}
+
+export interface BackParams {}
+export interface ForwardParams {}
+
+export interface NewTabParams {
+  readonly url?: string;
+}
+
+export interface SwitchTabParams {
+  readonly index: number;
+}
+
+export interface CloseTabParams {
+  readonly index?: number;
+}
+
+export interface WaitForSelectorParams {
+  readonly selector: string;
+  readonly timeout?: number;
+  readonly visible?: boolean;
+}
+
+export interface TabInfo {
+  readonly id: string;
+  readonly index: number;
+  readonly title: string;
+  readonly url: string;
+  readonly isActive: boolean;
 }
 export interface ScreenshotParams {}
 export interface FinishParams {
@@ -63,6 +115,14 @@ export type ActionParamsMap = {
   extract: ExtractParams;
   screenshot: ScreenshotParams;
   finish: FinishParams;
+  select: SelectParams;
+  hover: HoverParams;
+  back: BackParams;
+  forward: ForwardParams;
+  newTab: NewTabParams;
+  switchTab: SwitchTabParams;
+  closeTab: CloseTabParams;
+  waitForSelector: WaitForSelectorParams;
 };
 
 export interface AgentAction {
@@ -98,6 +158,8 @@ export interface AgentContext {
   readonly stepBudget?: number;
   readonly elapsedMs?: number;
   readonly remainingMs?: number;
+  readonly interactiveElements?: string | null;
+  readonly tabs?: ReadonlyArray<TabInfo>;
 }
 
 export interface AgentConfig {

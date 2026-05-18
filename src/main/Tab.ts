@@ -1,5 +1,40 @@
 import { NativeImage, WebContentsView } from "electron";
 
+// Injected into the page to build a compact list of interactive elements.
+// Uses only ES5 to stay compatible with any page environment.
+const INTERACTIVE_ELEMENTS_SCRIPT = `(function(){
+  var TAGS=['button','a[href]','input:not([type=hidden]):not([disabled])','select:not([disabled])','textarea:not([disabled])','[role=button]','[role=link]','[role=menuitem]','[role=tab]','[contenteditable=true]'];
+  var seen=typeof WeakSet!=='undefined'?new WeakSet():null;
+  var items=[];
+  function esc(s){return s?String(s).replace(/\\s+/g,' ').trim().substring(0,50):'';}
+  for(var ti=0;ti<TAGS.length;ti++){
+    try{
+      var els=document.querySelectorAll(TAGS[ti]);
+      for(var ei=0;ei<els.length;ei++){
+        var el=els[ei];
+        if(seen){if(seen.has(el))continue;seen.add(el);}
+        var r=el.getBoundingClientRect();
+        if(!r.width&&!r.height)continue;
+        if(r.bottom<-300||r.top>window.innerHeight+600)continue;
+        var t=el.tagName.toLowerCase();
+        var lbl=esc(el.innerText||el.value||el.placeholder||el.getAttribute('aria-label')||el.getAttribute('alt')||el.getAttribute('title'));
+        var sel;
+        if(el.id){sel='#'+el.id;}
+        else if(el.getAttribute('name')){sel=t+'[name="'+el.getAttribute('name')+'"]';}
+        else if(el.getAttribute('data-testid')){sel='[data-testid="'+el.getAttribute('data-testid')+'"]';}
+        else{var cls=typeof el.className==='string'?el.className.split(' ').filter(Boolean).slice(0,2).join('.'):'';sel=t+(cls?'.'+cls:'');}
+        var extra='';
+        if(t==='select'){var opts=[];for(var oi=0;oi<Math.min(el.options.length,8);oi++){opts.push('"'+esc(el.options[oi].text||el.options[oi].value)+'"');}extra=' opts=['+opts.join(',')+']';}
+        else if(el.type==='radio'||el.type==='checkbox'){extra=' checked='+el.checked;}
+        items.push(t+' '+sel+' "'+lbl+'"'+extra+' ('+Math.round(r.left+r.width/2)+','+Math.round(r.top+r.height/2)+')');
+        if(items.length>=60)break;
+      }
+    }catch(e){}
+    if(items.length>=60)break;
+  }
+  return items.join('\\n');
+})()` as const;
+
 export class Tab {
   private webContentsView: WebContentsView;
   private _id: string;
@@ -126,6 +161,30 @@ export class Tab {
       return null;
     } catch (error) {
       console.error("[Tab] CDP text extraction failed:", error);
+      return null;
+    }
+  }
+
+  async getInteractiveElements(): Promise<string | null> {
+    try {
+      const debug = this.webContentsView.webContents.debugger;
+      if (!debug.isAttached()) {
+        debug.attach("1.3");
+      }
+      const { result } = await debug.sendCommand("Runtime.evaluate", {
+        expression: INTERACTIVE_ELEMENTS_SCRIPT,
+        returnByValue: true,
+      });
+      if (result?.value && typeof result.value === "string") {
+        return result.value;
+      }
+    } catch {
+      // fall through to JS injection
+    }
+    try {
+      const result = await this.runJs(INTERACTIVE_ELEMENTS_SCRIPT);
+      return typeof result === "string" ? result : null;
+    } catch {
       return null;
     }
   }
