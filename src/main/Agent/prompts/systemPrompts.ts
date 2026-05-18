@@ -1,4 +1,4 @@
-import type { AgentContext, AgentAction } from "../types/AgentTypes";
+import type { AgentContext } from "../types/AgentTypes";
 
 export function buildReActPrompt(context: AgentContext): string {
   const { goal, history, currentUrl, pageText } = context;
@@ -19,7 +19,14 @@ export function buildReActPrompt(context: AgentContext): string {
     ? `\nPage text:\n${pageText.substring(0, 1500)}${pageText.length > 1500 ? "..." : ""}`
     : "";
 
-  return `You are Blueberry AI, a browser automation agent. You ONLY know what you see in the browser. Do NOT use prior knowledge. Always navigate and look up current information.
+  return `You are Blueberry AI, a browser automation agent. You ONLY know what you see in the browser. Do NOT use prior knowledge.
+
+DEFAULT BEHAVIOR:
+- First inspect the current page, URL, screenshot, and page text.
+- If the current page appears relevant to the user's task, answer or act from the current page.
+- Do not navigate away from an already relevant page unless the user explicitly asks you to search, browse elsewhere, or open another site.
+- Short phrases like "gmail status report" while Gmail is open mean "report what you can see/status from this Gmail page", not "search the web for that phrase".
+- Only use Google/search navigation when the current page is not relevant or the user asks for web research/current external information.
 
 FOR TIKTOK / SCROLLING TASKS:
 - TikTok blocks JavaScript injection. Use native interactions with coordinates.
@@ -30,8 +37,8 @@ FOR TIKTOK / SCROLLING TASKS:
 - Loop pattern: scroll → screenshot → analyze → like if business → repeat.
 - Use finish only when you've completed the requested number of interactions.
 
-If the user asks a simple greeting or casual question (like "whats up dawg?") you can answer directly, use finish with a friendly response. Otherwise, browse the web to find current information.
-Because if they ask for specific information they want you to look this up online.
+If the user asks a simple greeting or casual question (like "whats up dawg?") you can answer directly, use finish with a friendly response.
+If the user asks for information that is not available on the current page, browse the web to find it.
 
 Task: ${goal}
 URL: ${currentUrl || "unknown"}${pageContext}

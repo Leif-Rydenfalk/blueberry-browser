@@ -4,8 +4,6 @@ import type {
   AgentAction,
   AgentStep,
   AgentConfig,
-  AgentContext,
-  ActionResult,
   AgentStreamUpdate,
   TabStrategy,
 } from "../types/AgentTypes";
@@ -23,7 +21,6 @@ export class AgentRunner {
   private onUpdate: ((update: AgentStreamUpdate) => void) | null = null;
   private onComplete: ((steps: AgentStep[]) => void) | null = null;
   private onError: ((error: string) => void) | null = null;
-  private onNeedInput: ((question: string) => void) | null = null;
 
   constructor(config: AgentConfig, strategy: TabStrategy, llmClient: LLMClient) {
     this.config = config;
@@ -88,7 +85,7 @@ export class AgentRunner {
         const context = await this.strategy.getActiveContext(goal, this.steps);
 
         this.emitUpdate({
-          step: stepNum + 1,
+          step: stepNum,
           totalSteps: this.config.maxSteps,
           action: { type: "screenshot", params: {}, reasoning: "Analyzing page state" },
           status: "pending",
@@ -119,7 +116,7 @@ export class AgentRunner {
         }
 
         this.emitUpdate({
-          step: stepNum + 1,
+          step: stepNum,
           totalSteps: this.config.maxSteps,
           action,
           status: "running",
@@ -139,7 +136,7 @@ export class AgentRunner {
         this.steps.push(step);
 
         this.emitUpdate({
-          step: stepNum + 1,
+          step: stepNum,
           totalSteps: this.config.maxSteps,
           action,
           status: result.success ? "success" : "error",
@@ -159,7 +156,7 @@ export class AgentRunner {
           if (consecutiveErrors >= 3) {
             console.log("[AgentRunner] Too many errors, forcing finish");
             this.emitUpdate({
-              step: stepNum + 1,
+              step: stepNum,
               totalSteps: this.config.maxSteps,
               action: { type: "finish", params: { answer: "I encountered repeated errors (likely due to page security restrictions). Here's what I observed: " + JSON.stringify(this.steps.map(s => s.action.type + ":" + (s.result.success ? "ok" : "fail"))) }, reasoning: "Forced finish due to errors" },
               status: "success",
@@ -204,7 +201,7 @@ export class AgentRunner {
   }
 
   setNeedInputCallback(callback: (question: string) => void): void {
-    this.onNeedInput = callback;
+    void callback;
   }
 
   getSteps(): AgentStep[] {

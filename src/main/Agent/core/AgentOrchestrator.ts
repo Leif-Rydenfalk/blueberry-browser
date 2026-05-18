@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Window } from "../../Window";
-import type { LLMClient } from "../../LLMClient";
 import type {
   AgentConfig,
   AgentSession,
@@ -103,6 +102,18 @@ export class AgentOrchestrator {
           sess.updatedAt = Date.now();
         }
         console.error(`[AgentOrchestrator] Session ${sessionId} error:`, error);
+        this.onStreamUpdate?.({
+          step: sess?.currentStep || 1,
+          totalSteps: config.maxSteps,
+          action: {
+            type: "finish",
+            params: { answer: error },
+            reasoning: "Agent stopped with an error",
+          },
+          status: "error",
+          result: { success: false, error, recoverable: true },
+          sessionId,
+        });
         this.activeRunner = null;
       }
     );

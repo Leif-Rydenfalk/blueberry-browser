@@ -165,7 +165,7 @@ export class LLMClient {
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateText failed:", error);
-      return null;
+      return this.buildAgentErrorResponse(this.getErrorMessage(error));
     }
   }
 
@@ -195,7 +195,11 @@ export class LLMClient {
       return result.text;
     } catch (error) {
       console.error("[LLMClient] generateVisionText failed:", error);
-      // Fallback to text-only
+      if (this.isProviderOverloaded(error) || this.isRateLimited(error)) {
+        return this.buildAgentErrorResponse(this.getErrorMessage(error));
+      }
+
+      // Fallback to text-only when only the vision request failed.
       return this.generateText(prompt, temperature);
     }
   }
@@ -356,6 +360,14 @@ export class LLMClient {
     }
 
     if (
+      message.includes("529") ||
+      message.includes("overloaded") ||
+      message.includes("overloaded_error")
+    ) {
+      return "The model provider is overloaded right now. Please try again in a moment.";
+    }
+
+    if (
       message.includes("network") ||
       message.includes("fetch") ||
       message.includes("econnrefused")
@@ -368,6 +380,35 @@ export class LLMClient {
     }
 
     return "Sorry, I encountered an error while processing your request. Please try again.";
+  }
+
+  private isRateLimited(error: unknown): boolean {
+    return this.errorText(error).includes("429") || this.errorText(error).includes("rate limit");
+  }
+
+  private isProviderOverloaded(error: unknown): boolean {
+    const text = this.errorText(error);
+    return text.includes("529") || text.includes("overloaded") || text.includes("overloaded_error");
+  }
+
+  private errorText(error: unknown): string {
+    if (error instanceof Error) {
+      const details = JSON.stringify(error, Object.getOwnPropertyNames(error));
+      return `${error.message} ${details}`.toLowerCase();
+    }
+    try {
+      return JSON.stringify(error).toLowerCase();
+    } catch {
+      return String(error).toLowerCase();
+    }
+  }
+
+  private buildAgentErrorResponse(message: string): string {
+    return JSON.stringify({
+      type: "finish",
+      params: { answer: message },
+      reasoning: "LLM provider error",
+    });
   }
 
   private sendErrorMessage(messageId: string, errorMessage: string): void {

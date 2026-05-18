@@ -163,7 +163,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         return [...prev, nextMessage]
       })
 
-      if (data.status === 'success' && data.action.type === 'finish') {
+      if ((data.status === 'success' || data.status === 'error') && data.action.type === 'finish') {
         setIsRunning(false)
         // Add assistant message with the answer
         const answer = data.action.params?.answer || "Task completed"

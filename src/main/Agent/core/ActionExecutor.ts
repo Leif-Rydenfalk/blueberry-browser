@@ -6,7 +6,6 @@ import type {
 } from "../types/AgentTypes";
 
 export class ActionExecutor {
-  private lastScreenshot: string | null = null;
   async execute(tab: Tab | null, action: AgentAction): Promise<ActionResult> {
     if (!tab) {
       return {
@@ -95,7 +94,7 @@ export class ActionExecutor {
 
       // If JS click failed, try native click using coordinates
       if (result && result.x && result.y) {
-        await tab.nativeClick(result.x, result.y);
+        await this.nativeClick(tab, result.x, result.y);
         await this.sleep(500);
         return { success: true, data: { method: 'native', x: result.x, y: result.y } };
       }
@@ -105,7 +104,7 @@ export class ActionExecutor {
       // CSP error - try native click if we have coordinates
       if (params.x !== undefined && params.y !== undefined) {
         try {
-          await tab.nativeClick(params.x, params.y);
+          await this.nativeClick(tab, params.x, params.y);
           await this.sleep(500);
           return { success: true, data: { method: 'native_fallback', x: params.x, y: params.y } };
         } catch (nativeError) {
@@ -208,7 +207,7 @@ export class ActionExecutor {
         return { success: false, error: result.error, recoverable: true };
       }
       return { success: true, data: { [params.name]: result.data } };
-    } catch (error: any) {
+    } catch (error) {
       const msg = error instanceof Error ? error.message : "Script execution blocked";
       // Check if it's a CSP error
       const isCSP = msg.includes("Script failed to execute") || msg.includes("CSP") || msg.includes("Content Security Policy");
@@ -221,7 +220,7 @@ export class ActionExecutor {
     }
   }
 
-  private isRecoverable(type: ActionType, error: string): boolean {
+  private isRecoverable(_type: ActionType, error: string): boolean {
     const nonRecoverable = ['navigation', 'destroyed', 'no active tab'];
     return !nonRecoverable.some(kw => error.toLowerCase().includes(kw));
   }
