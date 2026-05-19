@@ -3,6 +3,7 @@ import { electronApp } from "@electron-toolkit/utils";
 import { Window } from "./Window";
 import { AppMenu } from "./Menu";
 import { EventManager } from "./EventManager";
+import { isTestMode, runTestMode } from "./TestHarness";
 
 let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
@@ -23,6 +24,14 @@ app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.electron");
 
   mainWindow = createWindow();
+
+  if (isTestMode()) {
+    runTestMode(mainWindow).catch((err) => {
+      console.error("[TestHarness] Fatal error:", err);
+      app.exit(1);
+    });
+    return;
+  }
 
   app.on("activate", () => {
     // On macOS it's common to re-create a window in the app when the
