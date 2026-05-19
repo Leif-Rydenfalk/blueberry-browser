@@ -123,6 +123,11 @@ export class EventManager {
         return result;
       },
     );
+
+    // Tab preloads (tabRecorder.ts) push DOM events here while recording is active.
+    ipcMain.on(WORKFLOW_CHANNELS.DOM_EVENT, (_event, payload) => {
+      this.workflowHandler.handleDomEvent(payload);
+    });
   }
 
   private handleTabEvents(): void {

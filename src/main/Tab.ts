@@ -1,4 +1,5 @@
 import { NativeImage, WebContentsView } from "electron";
+import { join } from "path";
 
 // Injected into the page to build a compact list of interactive elements.
 // Uses only ES5 to stay compatible with any page environment.
@@ -47,9 +48,12 @@ export class Tab {
     this._url = url;
     this._title = "New Tab";
 
-    // Create the WebContentsView for web content only
+    // Create the WebContentsView for web content only.
+    // The tabRecorder preload runs in an isolated world and only emits events
+    // while a workflow recording is active — see src/preload/tabRecorder.ts.
     this.webContentsView = new WebContentsView({
       webPreferences: {
+        preload: join(__dirname, "../preload/tabRecorder.js"),
         nodeIntegration: false,
         contextIsolation: true,
         sandbox: false,

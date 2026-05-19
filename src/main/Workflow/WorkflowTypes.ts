@@ -1,4 +1,15 @@
-export type WorkflowStepType = "navigation" | "annotation" | "screenshot";
+export type WorkflowStepType =
+  | "navigation"
+  | "annotation"
+  | "screenshot"
+  | "interaction";
+
+export type InteractionEventType =
+  | "click"
+  | "input"
+  | "change"
+  | "submit"
+  | "keydown";
 
 export interface WorkflowNavigationData {
   readonly fromUrl: string | null;
@@ -14,10 +25,28 @@ export interface WorkflowScreenshotData {
   readonly imageData: string;
 }
 
+export interface WorkflowInteractionData {
+  readonly eventType: InteractionEventType;
+  readonly tag: string;
+  readonly selector: string;
+  readonly xpath: string;
+  readonly label: string;
+  readonly role?: string;
+  readonly value?: string;
+  readonly key?: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly frame?: string;
+}
+
 export type WorkflowStepData =
   | { readonly type: "navigation"; readonly payload: WorkflowNavigationData }
   | { readonly type: "annotation"; readonly payload: WorkflowAnnotationData }
-  | { readonly type: "screenshot"; readonly payload: WorkflowScreenshotData };
+  | { readonly type: "screenshot"; readonly payload: WorkflowScreenshotData }
+  | {
+      readonly type: "interaction";
+      readonly payload: WorkflowInteractionData;
+    };
 
 export interface WorkflowStep {
   readonly id: string;
@@ -70,4 +99,22 @@ export const WORKFLOW_CHANNELS = {
   RENAME: "workflow:rename",
   RECORDING_UPDATE: "workflow:recording-update",
   STEP_CAPTURED: "workflow:step-captured",
+  DOM_EVENT: "workflow:dom-event",
+  RECORDING_ACTIVE_CHANGED: "workflow:recording-active-changed",
 } as const;
+
+export interface DomEventPayload {
+  readonly eventType: InteractionEventType;
+  readonly tag: string;
+  readonly selector: string;
+  readonly xpath: string;
+  readonly label: string;
+  readonly role?: string;
+  readonly value?: string;
+  readonly key?: string;
+  readonly x?: number;
+  readonly y?: number;
+  readonly url: string;
+  readonly pageTitle: string;
+  readonly timestamp: number;
+}

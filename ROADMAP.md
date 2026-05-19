@@ -8,7 +8,7 @@ into something a business will pay for.
 
 ---
 
-## Track 1 — True DOM Event Recording (Self-Healing Macros)
+## Track 1 — True DOM Event Recording (Self-Healing Macros) *(shipped)*
 
 ### The problem
 `WorkflowRecorder.captureNavigation()` only hooks `did-navigate` and
@@ -36,17 +36,42 @@ inspect the live page (interactive-elements list + screenshot) to locate the new
 semantically. On success, the recorded step is **rewritten** with the new selector so
 the next run skips the LLM round-trip.
 
-### Where to code
-- New: `src/preload/recorderHooks.ts` — injected script via `webContents.session.setPreloads`.
-- `src/main/Workflow/WorkflowRecorder.ts` — listen for `workflow:dom-event` IPC, push as
-  new step variant.
-- `src/main/Workflow/WorkflowTypes.ts` — add `WorkflowInteractionData` variant to
-  `WorkflowStepData`.
-- `src/main/Workflow/WorkflowIpcHandler.buildAgentPrompt()` — emit explicit
-  "click selector X / type Y into selector Z" instructions.
-- `src/main/Agent/core/ActionExecutor.ts` — on selector miss, return a `recoverable`
-  error tagged `selector_drift` so the runner can fall back to LLM-guided recovery.
-- New: `src/main/Workflow/WorkflowStore.updateStepSelector()` — persist healed selectors.
+### Where it lives in the code
+- `src/preload/tabRecorder.ts` — preload script attached to every tab's
+  `WebContentsView`. Hooks `click`/`input`/`change`/`submit`/`keydown` in capture
+  phase, computes selector + xpath + label, debounces input bursts (600 ms), and
+  posts `workflow:dom-event` only while recording is active.
+- `src/main/Tab.ts` — registers the preload via `webPreferences.preload`.
+- `electron.vite.config.ts` — adds `tabRecorder` to the preload rollup inputs so
+  it bundles to `out/preload/tabRecorder.js`.
+- `src/main/Workflow/WorkflowTypes.ts` — `WorkflowInteractionData` variant,
+  `DomEventPayload` interface, `DOM_EVENT` and `RECORDING_ACTIVE_CHANGED` channels.
+- `src/main/Workflow/WorkflowRecorder.ts` — `captureInteraction()` appends a
+  step; coalesces consecutive `input` events on the same selector so we keep
+  only the final value the user typed.
+- `src/main/Workflow/WorkflowIpcHandler.ts` — pipes IPC events into the
+  recorder, broadcasts `recording-active-changed` to every tab on state changes
+  (and to newly-created tabs while a recording is in flight), and rewrites
+  `buildAgentPrompt()` to emit explicit `Click "Label" / Type "..." into / Submit`
+  instructions with the selector and xpath alongside.
+- `src/main/EventManager.ts` — `ipcMain.on(DOM_EVENT)` routes payloads to the
+  handler.
+
+The agent's natural recovery loop is what provides the "self-healing" today: if
+a recorded selector returns "Element not found", `ActionExecutor` already
+returns `recoverable: true`, the runner gives the agent another step, and the
+existing interactive-elements list lets it pick the semantically-closest
+element. The follow-up below covers persisting the healed selector back to the
+workflow file so the next run skips the LLM round-trip entirely.
+
+### Open follow-ups (not in this PR)
+- **Persist healed selectors**: `WorkflowStore.updateStepSelector(workflowId, stepId, newSelector)`
+  + an explicit `selector_drift` error tag the runner watches for, so successful
+  fallbacks get written back to disk.
+- **iframe recording**: `tabRecorder.ts` currently only sees main-frame events;
+  a separate `setPreloads` injection inside same-origin frames would catch
+  payment widgets and embedded forms.
+- **Drag/drop and clipboard**: not yet captured.
 
 ### Why it ships money
 Recorded workflows go from "AI guidance" to **deterministic playback** — the same
@@ -233,8 +258,8 @@ Execution flow:
 ## Implementation order (recommended)
 
 1. ~~**Track 5**~~ ✓ shipped — small, self-contained, immediate value on every scrape task.
-2. **Track 1 (next)** — unblocks Tracks 2 & 4 by giving us real interaction data.
-3. **Track 2** — turns recordings into bulk runs (the primary commercial use case).
+2. ~~**Track 1**~~ ✓ shipped — gives Tracks 2 & 4 the real interaction data they need.
+3. **Track 2 (next)** — turns recordings into bulk runs (the primary commercial use case).
 4. **Track 4** — required before any customer trusts Track 2 in production.
 5. **Track 3** — needed once concurrency matters; deferrable until the first 4 prove out.
 

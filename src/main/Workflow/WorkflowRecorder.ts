@@ -1,7 +1,12 @@
 import { v4 as uuidv4 } from "uuid";
 import type { Tab } from "../Tab";
 import type { Window } from "../Window";
-import type { Workflow, WorkflowStep, RecordingState } from "./WorkflowTypes";
+import type {
+  Workflow,
+  WorkflowStep,
+  RecordingState,
+  DomEventPayload,
+} from "./WorkflowTypes";
 
 export class WorkflowRecorder {
   private recording = false;
@@ -84,6 +89,61 @@ export class WorkflowRecorder {
     this.steps.push(step);
     this.onStepCaptured?.(step);
     this.emitState();
+  }
+
+  captureInteraction(event: DomEventPayload): void {
+    if (!this.recording) return;
+    if (this.shouldCoalesceInteraction(event)) return;
+    const step: WorkflowStep = {
+      id: uuidv4(),
+      timestamp: event.timestamp || Date.now(),
+      url: event.url,
+      pageTitle: event.pageTitle,
+      data: {
+        type: "interaction",
+        payload: {
+          eventType: event.eventType,
+          tag: event.tag,
+          selector: event.selector,
+          xpath: event.xpath,
+          label: event.label,
+          role: event.role,
+          value: event.value,
+          key: event.key,
+          x: event.x,
+          y: event.y,
+        },
+      },
+    };
+    this.steps.push(step);
+    this.onStepCaptured?.(step);
+    this.emitState();
+  }
+
+  // Replace the previous "input" step on the same selector with this one — the
+  // user is still typing into the same field. "change" events flush separately.
+  private shouldCoalesceInteraction(event: DomEventPayload): boolean {
+    if (event.eventType !== "input") return false;
+    const last = this.steps[this.steps.length - 1];
+    if (!last || last.data.type !== "interaction") return false;
+    const lastPayload = last.data.payload;
+    if (lastPayload.eventType !== "input") return false;
+    if (lastPayload.selector !== event.selector) return false;
+    const replaced: WorkflowStep = {
+      ...last,
+      timestamp: event.timestamp || Date.now(),
+      data: {
+        type: "interaction",
+        payload: {
+          ...lastPayload,
+          value: event.value,
+        },
+      },
+    };
+    this.steps[this.steps.length - 1] = replaced;
+    this.onStepCaptured?.(replaced);
+    this.emitState();
+    return true;
   }
 
   captureNavigation(tab: Tab, toUrl: string): void {

@@ -13,6 +13,7 @@ export default defineConfig({
         input: {
           topbar: resolve(__dirname, "src/preload/topbar.ts"),
           sidebar: resolve(__dirname, "src/preload/sidebar.ts"),
+          tabRecorder: resolve(__dirname, "src/preload/tabRecorder.ts"),
         },
       },
     },
