@@ -13,12 +13,12 @@ import type {
   ScriptReviewResolution,
 } from "../types/AgentTypes";
 import { SingleTabStrategy } from "../strategies/SingleTabStrategy";
-import { AgentRunner } from "./AgentRunner";
+import { McpAgentRunner } from "../mcp/McpAgentRunner";
 
 export class AgentOrchestrator {
   private window: Window;
   private sessions: Map<string, AgentSession> = new Map();
-  private activeRunner: AgentRunner | null = null;
+  private activeRunner: McpAgentRunner | null = null;
   private activeSessionId: string | null = null;
   private onStreamUpdate: ((update: AgentStreamUpdate) => void) | null = null;
   private onApprovalRequired:
@@ -101,7 +101,7 @@ export class AgentOrchestrator {
     const strategy = new SingleTabStrategy(this.window, llmClient);
 
     // Create runner
-    const runner = new AgentRunner(config, strategy, llmClient);
+    const runner = new McpAgentRunner(config, strategy, llmClient);
     this.activeRunner = runner;
 
     runner.setApprovalCallback((request) => {
@@ -249,7 +249,7 @@ export class AgentOrchestrator {
 
     const llmClient = this.window.sidebar.client;
     const strategy = new SingleTabStrategy(this.window, llmClient);
-    const runner = new AgentRunner(config, strategy, llmClient);
+    const runner = new McpAgentRunner(config, strategy, llmClient);
     this.activeRunner = runner;
 
     runner.setApprovalCallback((request) => {
