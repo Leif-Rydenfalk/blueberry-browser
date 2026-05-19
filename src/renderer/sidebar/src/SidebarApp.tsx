@@ -3,6 +3,7 @@ import { AgentProvider } from "./contexts/AgentContext";
 import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { AgentPanel } from "./components/AgentPanel";
 import { WorkflowPanel } from "./components/WorkflowPanel";
+import { SidebarResizeHandle } from "./components/SidebarResizeHandle";
 import { useDarkMode } from "@common/hooks/useDarkMode";
 import { cn } from "@common/lib/utils";
 
@@ -17,9 +18,10 @@ const SidebarContent: React.FC = () => {
   }, [isDarkMode]);
 
   return (
-    <div className="h-screen flex flex-col bg-background border-l border-border/60">
+    <div className="relative h-screen flex flex-col bg-background border-l border-border/60">
+      <SidebarResizeHandle />
       {/* Tab switcher */}
-      <div className="flex border-b border-border/50">
+      <div className="flex border-b border-border/50 pl-1.5">
         <button
           onClick={() => setActiveTab("agent")}
           className={cn(

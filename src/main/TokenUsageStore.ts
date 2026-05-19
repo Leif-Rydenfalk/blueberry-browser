@@ -41,7 +41,9 @@ export class TokenUsageStore {
   private load(): StoredData {
     if (!fs.existsSync(this.file)) return { inputTokens: 0, outputTokens: 0 };
     try {
-      const parsed = JSON.parse(fs.readFileSync(this.file, "utf-8")) as Partial<StoredData>;
+      const parsed = JSON.parse(
+        fs.readFileSync(this.file, "utf-8"),
+      ) as Partial<StoredData>;
       return {
         inputTokens: parsed.inputTokens ?? 0,
         outputTokens: parsed.outputTokens ?? 0,

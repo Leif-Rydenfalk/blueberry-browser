@@ -4,11 +4,16 @@ import { join } from "path";
 import { LLMClient } from "./LLMClient";
 import { TokenUsageStore } from "./TokenUsageStore";
 
+export const SIDEBAR_MIN_WIDTH = 280;
+export const SIDEBAR_MAX_WIDTH = 900;
+export const SIDEBAR_DEFAULT_WIDTH = 400;
+
 export class SideBar {
   private webContentsView: WebContentsView;
   private baseWindow: BaseWindow;
   private llmClient: LLMClient;
   private isVisible: boolean = true;
+  private width: number = SIDEBAR_DEFAULT_WIDTH;
 
   constructor(baseWindow: BaseWindow) {
     this.baseWindow = baseWindow;
@@ -18,6 +23,22 @@ export class SideBar {
 
     this.llmClient = new LLMClient(this.webContentsView.webContents);
     this.llmClient.setUsageStore(new TokenUsageStore());
+  }
+
+  // Effective width — zero when hidden so callers laying out tabs don't have to
+  // special-case the hidden state.
+  getWidth(): number {
+    return this.isVisible ? this.width : 0;
+  }
+
+  setWidth(width: number): number {
+    const clamped = Math.min(
+      Math.max(Math.round(width), SIDEBAR_MIN_WIDTH),
+      SIDEBAR_MAX_WIDTH,
+    );
+    this.width = clamped;
+    if (this.isVisible) this.setupBounds();
+    return clamped;
   }
 
   private createWebContentsView(): WebContentsView {
@@ -52,9 +73,9 @@ export class SideBar {
 
     const bounds = this.baseWindow.getBounds();
     this.webContentsView.setBounds({
-      x: bounds.width - 400, // 400px width sidebar on the right
+      x: bounds.width - this.width,
       y: 88, // Start below the topbar
-      width: 400,
+      width: this.width,
       height: bounds.height - 88, // Subtract topbar height
     });
   }

@@ -166,4 +166,98 @@ export class SingleTabStrategy implements TabStrategy {
     if (!tab) return null;
     return tab.url;
   }
+
+  // Resolve the visible label of the element targeted by a click/type/key.
+  // Used by the HITL approval gate; returning null is safe — the gate falls
+  // back to scanning the action's `reasoning` and `params` text.
+  async getActionLabel(action: AgentAction): Promise<string | null> {
+    const tab = this.activeTab;
+    if (!tab) return null;
+
+    if (action.type === "click" || action.type === "type") {
+      const params = action.params as {
+        selector?: string;
+        x?: number;
+        y?: number;
+        frame?: string;
+      };
+
+      if (params.selector) {
+        return this.readSelectorLabel(tab, params.selector, params.frame);
+      }
+      if (
+        !params.frame &&
+        params.x !== undefined &&
+        params.y !== undefined
+      ) {
+        return this.readPointLabel(tab, params.x, params.y);
+      }
+    }
+
+    return null;
+  }
+
+  private async readSelectorLabel(
+    tab: Tab,
+    selector: string,
+    frame: string | undefined,
+  ): Promise<string | null> {
+    const frameSetup = frame
+      ? `
+        var __iframe = document.querySelector(${JSON.stringify(frame)});
+        if (!__iframe) return null;
+        var __doc = __iframe.contentDocument || (__iframe.contentWindow && __iframe.contentWindow.document);
+        if (!__doc) return null;
+      `
+      : "var __doc = document;";
+
+    const code = `
+      (function() {
+        try {
+          ${frameSetup}
+          var el = __doc.querySelector(${JSON.stringify(selector)});
+          if (!el) return null;
+          var aria = el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'));
+          var text = (el.innerText || el.textContent || '').trim();
+          var name = (el.name || el.id || '');
+          var combined = [aria, text, name].filter(Boolean).join(' | ');
+          return combined.substring(0, 200);
+        } catch (e) {
+          return null;
+        }
+      })()
+    `;
+    try {
+      const result = (await tab.runJs(code)) as string | null;
+      return result || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async readPointLabel(
+    tab: Tab,
+    x: number,
+    y: number,
+  ): Promise<string | null> {
+    const code = `
+      (function() {
+        try {
+          var el = document.elementFromPoint(${x}, ${y});
+          if (!el) return null;
+          var aria = el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title'));
+          var text = (el.innerText || el.textContent || '').trim();
+          return [aria, text].filter(Boolean).join(' | ').substring(0, 200);
+        } catch (e) {
+          return null;
+        }
+      })()
+    `;
+    try {
+      const result = (await tab.runJs(code)) as string | null;
+      return result || null;
+    } catch {
+      return null;
+    }
+  }
 }

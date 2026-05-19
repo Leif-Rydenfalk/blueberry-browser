@@ -106,7 +106,7 @@ export class Window {
     tab.view.setBounds({
       x: 0,
       y: 88, // Start below the topbar
-      width: bounds.width - 400, // Subtract sidebar width
+      width: bounds.width - this._sideBar.getWidth(),
       height: bounds.height - 88, // Subtract topbar height
     });
 
@@ -238,8 +238,7 @@ export class Window {
   // Handle window resize to update tab bounds
   private updateTabBounds(): void {
     const bounds = this._baseWindow.getBounds();
-    // Only subtract sidebar width if it's visible
-    const sidebarWidth = this._sideBar.getIsVisible() ? 400 : 0;
+    const sidebarWidth = this._sideBar.getWidth();
 
     this.tabsMap.forEach((tab) => {
       tab.view.setBounds({
