@@ -186,34 +186,68 @@ That's the only way RPA-style automation is actually usable for knowledge worker
 
 ---
 
-## Track 4 — Human-in-the-Loop (HITL) Checkpoints
+## Track 4 — Human-in-the-Loop (HITL) Checkpoints *(shipped)*
 
 ### The problem
 The agent will happily click "Send" on 50 emails or "Pay" on a checkout. No business
 that values its money will let an LLM act unsupervised on destructive actions.
 
 ### The fix
-A `waitForApproval` action and a "destructive action" classifier:
+A `waitForApproval` action and a destructive-action classifier:
 
-- Any click on an element containing the text *Send*, *Pay*, *Submit*, *Delete*,
-  *Confirm purchase*, etc., implicitly pauses the runner.
-- The runner emits `agent:approval-required` over IPC with a description of the
-  pending action and the current screenshot.
-- Sidebar shows an Approval UI: "Approve once" / "Approve all in this run" / "Skip" /
-  "Stop".
-- Drafting + queueing pattern: agent prepares 50 drafts → pauses → user clicks
-  "Approve all" → agent executes the queued sends.
+- Any `click`/`type`/`key` whose target element label or whose agent reasoning
+  contains a destructive keyword (Send, Pay, Submit, Delete, Confirm, Publish,
+  Transfer, etc.) implicitly pauses the runner before the action runs.
+- The runner emits `agent:approval-required` over IPC with the proposed action,
+  the matched keyword, the element's resolved label, and a fresh screenshot.
+- Sidebar shows a bottom-sheet Approval UI: "Approve once" / "Approve all in
+  this run" / "Skip" / "Stop run".
+- Drafting + queueing pattern: the agent can also call `waitForApproval` itself
+  with a `reason` and `previewData` (the drafted message, etc.) — useful for
+  batching ("prepare all 50 drafts → pause once → user approves the batch").
 
-### Where to code
-- `src/main/Agent/types/AgentTypes.ts` — add `"waitForApproval"` to `ActionType` and
-  `ApprovalParams { reason: string; previewData?: unknown }`.
-- `src/main/Agent/core/AgentRunner.ts` — new `pendingApproval` state; loop blocks
-  until renderer responds.
-- `src/main/Agent/core/AgentIpcHandler.ts` — `agent:resolve-approval` channel.
-- `src/main/Agent/core/ActionExecutor.ts` — pre-check on `click` / `type`: if the
-  target element's text matches the destructive-keyword list and the runner isn't in
-  "approve all" mode, transparently insert an approval gate.
-- Renderer: a bottom-sheet approval modal (uses the existing pattern from `DESIGN.md §8`).
+### Where it lives in the code
+- `src/main/Agent/types/AgentTypes.ts` — `"waitForApproval"` in `ActionType`,
+  `WaitForApprovalParams`, `ApprovalDecision`, `ApprovalRequest`,
+  `ApprovalResolved`, plus an optional `getActionLabel(action)` on
+  `TabStrategy` that resolves the target element's visible label.
+- `src/main/Agent/core/ApprovalGate.ts` — `DESTRUCTIVE_KEYWORDS` list,
+  `classifyActionByText()` (scans reasoning + params), and
+  `classifyElementLabel()` (scans the live element label).
+- `src/main/Agent/strategies/SingleTabStrategy.ts` — implements
+  `getActionLabel()` via `tab.runJs` (selector path) or `elementFromPoint`
+  (coordinate path).
+- `src/main/Agent/core/AgentRunner.ts` — `pendingApproval` state,
+  `approveAllForRun` flag, `maybeRequestApproval()` runs before each
+  `executeAction`. Decisions: `approve-once` / `approve-all` proceed,
+  `skip` records a skipped step and continues, `stop` finishes the run.
+  `resolveApproval(id, decision)` resolves the promise from the renderer.
+  `abort()` also resolves any in-flight approval with `stop`.
+- `src/main/Agent/core/AgentOrchestrator.ts` — `setApprovalCallback()`,
+  `resolveApproval()`, `getPendingApproval()`; bakes `sessionId` into every
+  emitted request.
+- `src/main/Agent/core/AgentIpcHandler.ts` — fans approval events out to
+  any number of listeners and exposes resolver methods.
+- `src/main/EventManager.ts` — `agent:approval-required` push channel and
+  `agent:resolve-approval` / `agent:get-pending-approval` invoke channels.
+- `src/preload/sidebar.ts` (+ `.d.ts`) — `onAgentApprovalRequired`,
+  `resolveAgentApproval`, `getPendingAgentApproval`.
+- `src/renderer/sidebar/src/contexts/AgentContext.tsx` — `pendingApproval`
+  state, `resolveApproval()` action, recovery via `getPendingAgentApproval`
+  on mount.
+- `src/renderer/sidebar/src/components/ApprovalSheet.tsx` — bottom-sheet
+  modal with the proposed action, target label, matched keyword chip, page
+  screenshot, and the four decision buttons.
+- `src/main/Agent/prompts/systemPrompts.ts` — documents `waitForApproval`
+  and tells the model that destructive-button clicks are auto-gated.
+
+### Open follow-ups (not in this PR)
+- **Per-workflow approval policy**: let a saved workflow declare "always
+  require approval at this step" so even non-keyword clicks pause.
+- **Approval audit log**: persist `{actionId, decision, user, timestamp}`
+  to disk for compliance review.
+- **Tunable keyword list**: expose `DESTRUCTIVE_KEYWORDS` as a settings
+  panel so each tenant can add their own (e.g. "Wire Funds").
 
 ### Why it ships money
 Removes the #1 objection to deploying LLM agents in business workflows. Buyers can say
@@ -298,7 +332,7 @@ Execution flow:
 1. ~~**Track 5**~~ ✓ shipped — small, self-contained, immediate value on every scrape task.
 2. ~~**Track 1**~~ ✓ shipped — gives Tracks 2 & 4 the real interaction data they need.
 3. ~~**Track 2**~~ ✓ shipped — workflows now loop over a CSV with per-step column bindings.
-4. **Track 4 (next)** — required before any customer trusts Track 2 in production.
+4. ~~**Track 4**~~ ✓ shipped — destructive-action gate + bottom-sheet approval UI.
 5. **Track 3** — needed once concurrency matters; deferrable until the first 4 prove out.
 
 ---
