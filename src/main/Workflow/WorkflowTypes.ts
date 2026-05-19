@@ -37,6 +37,15 @@ export interface WorkflowInteractionData {
   readonly x?: number;
   readonly y?: number;
   readonly frame?: string;
+  // Bind this step to a dataset column. At replay the runner substitutes
+  // row[column] for the literal value above.
+  readonly parameter?: { readonly column: string };
+}
+
+export interface WorkflowDataset {
+  readonly columns: ReadonlyArray<string>;
+  readonly rows: ReadonlyArray<Readonly<Record<string, string>>>;
+  readonly source?: string;
 }
 
 export type WorkflowStepData =
@@ -66,6 +75,7 @@ export interface Workflow {
   readonly startUrl: string;
   readonly endUrl: string;
   readonly stepCount: number;
+  readonly dataset?: WorkflowDataset;
 }
 
 export interface RecordingState {
@@ -84,6 +94,28 @@ export interface WorkflowSummary {
   readonly stepCount: number;
   readonly startUrl: string;
   readonly endUrl: string;
+  readonly datasetRowCount?: number;
+  readonly datasetColumns?: ReadonlyArray<string>;
+}
+
+export interface BulkRunProgress {
+  readonly workflowId: string;
+  readonly runId: string;
+  readonly rowIndex: number;
+  readonly totalRows: number;
+  readonly status: "running" | "completed" | "error";
+  readonly currentRow: Readonly<Record<string, string>>;
+  readonly answer?: string;
+  readonly error?: string;
+}
+
+export interface BulkRunResult {
+  readonly workflowId: string;
+  readonly runId: string;
+  readonly totalRows: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly csvPath: string;
 }
 
 export const WORKFLOW_CHANNELS = {
@@ -101,6 +133,14 @@ export const WORKFLOW_CHANNELS = {
   STEP_CAPTURED: "workflow:step-captured",
   DOM_EVENT: "workflow:dom-event",
   RECORDING_ACTIVE_CHANGED: "workflow:recording-active-changed",
+  SET_DATASET: "workflow:set-dataset",
+  CLEAR_DATASET: "workflow:clear-dataset",
+  SET_RECORDING_DATASET: "workflow:set-recording-dataset",
+  BIND_STEP_TO_COLUMN: "workflow:bind-step-to-column",
+  EXECUTE_BULK: "workflow:execute-bulk",
+  BULK_RUN_PROGRESS: "workflow:bulk-run-progress",
+  BULK_RUN_COMPLETE: "workflow:bulk-run-complete",
+  ABORT_BULK: "workflow:abort-bulk",
 } as const;
 
 export interface DomEventPayload {

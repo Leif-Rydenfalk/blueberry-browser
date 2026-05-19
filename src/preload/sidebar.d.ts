@@ -67,6 +67,19 @@ interface WorkflowStep {
   };
 }
 
+interface WorkflowFull {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly createdAt: number;
+  readonly duration: number;
+  readonly steps: ReadonlyArray<WorkflowStep>;
+  readonly startUrl: string;
+  readonly endUrl: string;
+  readonly stepCount: number;
+  readonly dataset?: WorkflowDataset;
+}
+
 interface WorkflowSummary {
   readonly id: string;
   readonly name: string;
@@ -76,6 +89,34 @@ interface WorkflowSummary {
   readonly stepCount: number;
   readonly startUrl: string;
   readonly endUrl: string;
+  readonly datasetRowCount?: number;
+  readonly datasetColumns?: ReadonlyArray<string>;
+}
+
+interface WorkflowDataset {
+  readonly columns: ReadonlyArray<string>;
+  readonly rows: ReadonlyArray<Record<string, string>>;
+  readonly source?: string;
+}
+
+interface BulkRunProgress {
+  readonly workflowId: string;
+  readonly runId: string;
+  readonly rowIndex: number;
+  readonly totalRows: number;
+  readonly status: "running" | "completed" | "error";
+  readonly currentRow: Record<string, string>;
+  readonly answer?: string;
+  readonly error?: string;
+}
+
+interface BulkRunResult {
+  readonly workflowId: string;
+  readonly runId: string;
+  readonly totalRows: number;
+  readonly successes: number;
+  readonly failures: number;
+  readonly csvPath: string;
 }
 
 interface ModelSelection extends ModelOption {
@@ -130,7 +171,7 @@ interface SidebarAPI {
   addWorkflowAnnotation: (text: string) => Promise<boolean>;
   getWorkflowRecordingState: () => Promise<RecordingState>;
   getAllWorkflows: () => Promise<WorkflowSummary[]>;
-  getWorkflow: (id: string) => Promise<unknown>;
+  getWorkflow: (id: string) => Promise<WorkflowFull | null>;
   deleteWorkflow: (id: string) => Promise<boolean>;
   renameWorkflow: (id: string, name: string) => Promise<boolean>;
   executeWorkflow: (
@@ -143,6 +184,26 @@ interface SidebarAPI {
   removeWorkflowRecordingUpdateListener: () => void;
   onWorkflowStepCaptured: (callback: (step: WorkflowStep) => void) => void;
   removeWorkflowStepCapturedListener: () => void;
+  setWorkflowDataset: (
+    id: string,
+    dataset: WorkflowDataset,
+  ) => Promise<boolean>;
+  clearWorkflowDataset: (id: string) => Promise<boolean>;
+  setRecordingDataset: (dataset: WorkflowDataset | null) => Promise<boolean>;
+  bindStepToColumn: (
+    id: string,
+    stepId: string,
+    column: string | null,
+  ) => Promise<boolean>;
+  executeBulkWorkflow: (
+    id: string,
+    goalOverride?: string,
+  ) => Promise<{ runId: string } | { error: string }>;
+  abortBulkWorkflow: () => Promise<boolean>;
+  onBulkRunProgress: (callback: (progress: BulkRunProgress) => void) => void;
+  removeBulkRunProgressListener: () => void;
+  onBulkRunComplete: (callback: (result: BulkRunResult) => void) => void;
+  removeBulkRunCompleteListener: () => void;
   getTokenUsage: () => Promise<TokenUsageTotals | null>;
   onTokenUsageUpdated: (callback: (totals: TokenUsageTotals) => void) => void;
   removeTokenUsageUpdatedListener: () => void;

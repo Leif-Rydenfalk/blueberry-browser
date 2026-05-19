@@ -6,7 +6,7 @@ import type {
 import { AgentOrchestrator } from "./AgentOrchestrator";
 
 export class AgentIpcHandler {
-  private orchestrator: AgentOrchestrator;
+  readonly orchestrator: AgentOrchestrator;
   private updateListeners: Set<(update: AgentStreamUpdate) => void> = new Set();
 
   constructor(window: Window) {

@@ -1,4 +1,5 @@
 import { v4 as uuidv4 } from "uuid";
+import { Menu } from "electron";
 import type { Tab } from "../Tab";
 import type { Window } from "../Window";
 import type {
@@ -6,6 +7,7 @@ import type {
   WorkflowStep,
   RecordingState,
   DomEventPayload,
+  WorkflowDataset,
 } from "./WorkflowTypes";
 
 export class WorkflowRecorder {
@@ -13,6 +15,9 @@ export class WorkflowRecorder {
   private startedAt: number | null = null;
   private steps: WorkflowStep[] = [];
   private lastUrl: string | null = null;
+  private activeDataset: WorkflowDataset | null = null;
+  // selector → column to apply to the *next* interaction step matching that selector
+  private pendingBindings: Map<string, string> = new Map();
   private onUpdate: ((state: RecordingState) => void) | null = null;
   private onStepCaptured: ((step: WorkflowStep) => void) | null = null;
 
@@ -58,12 +63,14 @@ export class WorkflowRecorder {
       startUrl: firstStep.url,
       endUrl: lastStep.url,
       stepCount: this.steps.length,
+      dataset: this.activeDataset ?? undefined,
     };
 
     this.recording = false;
     this.startedAt = null;
     this.steps = [];
     this.lastUrl = null;
+    this.pendingBindings.clear();
     this.emitState();
 
     return workflow;
@@ -74,7 +81,48 @@ export class WorkflowRecorder {
     this.startedAt = null;
     this.steps = [];
     this.lastUrl = null;
+    this.pendingBindings.clear();
     this.emitState();
+  }
+
+  setActiveDataset(dataset: WorkflowDataset | null): void {
+    this.activeDataset = dataset;
+  }
+
+  getActiveDataset(): WorkflowDataset | null {
+    return this.activeDataset;
+  }
+
+  // Find the most-recent interaction step matching this selector and bind it
+  // to the given column. If no matching step exists yet (the user right-clicked
+  // *before* typing), register a pending binding that will apply to the next
+  // matching step.
+  bindLatestInteraction(
+    selector: string,
+    column: string,
+  ): {
+    readonly applied: "step" | "pending" | "none";
+    readonly stepId?: string;
+  } {
+    if (!this.recording) return { applied: "none" };
+    for (let i = this.steps.length - 1; i >= 0; i--) {
+      const step = this.steps[i];
+      if (step.data.type !== "interaction") continue;
+      if (step.data.payload.selector !== selector) continue;
+      const replaced: WorkflowStep = {
+        ...step,
+        data: {
+          type: "interaction",
+          payload: { ...step.data.payload, parameter: { column } },
+        },
+      };
+      this.steps[i] = replaced;
+      this.onStepCaptured?.(replaced);
+      this.emitState();
+      return { applied: "step", stepId: replaced.id };
+    }
+    this.pendingBindings.set(selector, column);
+    return { applied: "pending" };
   }
 
   addAnnotation(text: string, currentUrl: string, pageTitle: string): void {
@@ -94,6 +142,8 @@ export class WorkflowRecorder {
   captureInteraction(event: DomEventPayload): void {
     if (!this.recording) return;
     if (this.shouldCoalesceInteraction(event)) return;
+    const pendingColumn = this.pendingBindings.get(event.selector);
+    if (pendingColumn) this.pendingBindings.delete(event.selector);
     const step: WorkflowStep = {
       id: uuidv4(),
       timestamp: event.timestamp || Date.now(),
@@ -112,6 +162,7 @@ export class WorkflowRecorder {
           key: event.key,
           x: event.x,
           y: event.y,
+          ...(pendingColumn ? { parameter: { column: pendingColumn } } : {}),
         },
       },
     };
@@ -195,6 +246,10 @@ export class WorkflowRecorder {
     this.navListeners.set(tab.id, listener);
     tab.webContents.on("did-navigate", listener);
     tab.webContents.on("did-navigate-in-page", listener);
+    tab.webContents.on("context-menu", (_event, params) => {
+      if (!params.isEditable) return;
+      this.handleContextMenu(tab, params.x, params.y);
+    });
   }
 
   unhookTab(tab: Tab): void {
@@ -203,6 +258,98 @@ export class WorkflowRecorder {
     tab.webContents.removeListener("did-navigate", listener);
     tab.webContents.removeListener("did-navigate-in-page", listener);
     this.navListeners.delete(tab.id);
+    tab.webContents.removeAllListeners("context-menu");
+  }
+
+  // Show a "Bind to column ▸" submenu on right-click when a dataset is
+  // active during a recording. Resolves the selector for the right-clicked
+  // element via the page, then binds via [[bindLatestInteraction]].
+  private handleContextMenu(tab: Tab, x: number, y: number): void {
+    if (!this.recording) return;
+    const dataset = this.activeDataset;
+    if (!dataset || dataset.columns.length === 0) return;
+
+    const submenu = dataset.columns.map((column) => ({
+      label: column,
+      click: () => {
+        void this.bindByPoint(tab, x, y, column);
+      },
+    }));
+
+    const menu = Menu.buildFromTemplate([
+      {
+        label: "Bind input to column",
+        submenu,
+      },
+    ]);
+    // No window option → popup attaches to the currently-focused window.
+    menu.popup();
+  }
+
+  private async bindByPoint(
+    tab: Tab,
+    x: number,
+    y: number,
+    column: string,
+  ): Promise<void> {
+    const selector = await this.resolveSelectorAtPoint(tab, x, y);
+    if (!selector) {
+      console.error("[WorkflowRecorder] No element under right-click");
+      return;
+    }
+    const result = this.bindLatestInteraction(selector, column);
+    if (result.applied === "none") {
+      console.error("[WorkflowRecorder] Could not bind selector to column");
+    }
+  }
+
+  private async resolveSelectorAtPoint(
+    tab: Tab,
+    x: number,
+    y: number,
+  ): Promise<string | null> {
+    const code = `
+      (function() {
+        try {
+          var el = document.elementFromPoint(${x}, ${y});
+          if (!el) return null;
+          var anchor = el.closest('input, textarea, select, [contenteditable=true], a[href], button, [role=button], [role=link]') || el;
+          function escape(v){ return (typeof CSS !== 'undefined' && CSS.escape) ? CSS.escape(v) : v; }
+          if (anchor.id) return '#' + escape(anchor.id);
+          var t = anchor.getAttribute('data-testid');
+          if (t) return '[data-testid="' + t + '"]';
+          var n = anchor.getAttribute('name');
+          if (n) return anchor.tagName.toLowerCase() + '[name="' + n + '"]';
+          var path = [];
+          var node = anchor;
+          var d = 0;
+          while (node && node.nodeType === 1 && d < 5) {
+            var part = node.tagName.toLowerCase();
+            if (node.id) { part = '#' + escape(node.id); path.unshift(part); break; }
+            if (typeof node.className === 'string' && node.className.trim()) {
+              var cls = node.className.trim().split(/\\s+/).slice(0,2).map(function(c){ return '.' + escape(c); }).join('');
+              part += cls;
+            }
+            var parent = node.parentElement;
+            if (parent) {
+              var siblings = Array.from(parent.children).filter(function(c){ return c.tagName === node.tagName; });
+              if (siblings.length > 1) part += ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')';
+            }
+            path.unshift(part);
+            node = node.parentElement;
+            d++;
+          }
+          return path.join(' > ');
+        } catch (e) { return null; }
+      })()
+    `;
+    try {
+      const result = (await tab.runJs(code)) as string | null;
+      return typeof result === "string" && result.length > 0 ? result : null;
+    } catch (error) {
+      console.error("[WorkflowRecorder] selector resolve failed:", error);
+      return null;
+    }
   }
 
   hookAllTabs(window: Window): void {

@@ -80,7 +80,7 @@ and LLM-assisted recovery when the page changes.
 
 ---
 
-## Track 2 — Bulk Data Parameterization ("Spreadsheet" feature)
+## Track 2 — Bulk Data Parameterization ("Spreadsheet" feature) *(shipped)*
 
 ### The problem
 The agent runs one task at a time with a single hard-coded goal. Customers want to
@@ -96,21 +96,59 @@ during recording:
 The recorded steps store `{{ column }}` placeholders instead of literal values.
 Execution becomes a loop over the dataset; each iteration substitutes `currentRow`.
 
-### Where to code
-- `src/main/Workflow/WorkflowTypes.ts` — add `WorkflowDataset` (rows, column names) and
-  a `parameter` field on interaction steps: `{ source: "column", column: string }`.
-- `src/main/Workflow/WorkflowStore` — store CSVs alongside the workflow JSON under
-  `userData/workflows/{id}/dataset.csv`.
-- `src/main/Agent/core/AgentOrchestrator.startSession` — accept `dataset: Row[]` and
-  iterate (one runner invocation per row, or one runner that loops internally).
-- `src/main/Agent/types/AgentTypes.ts` — add `currentRow?: Record<string, string>` to
-  `AgentContext`.
-- `src/main/Agent/prompts/systemPrompts.ts` — instruct the agent to substitute
-  `{{ currentRow.column }}` and never reuse a prior row's data.
-- Renderer: a CSV picker + a column-binding UI surfaced during the recording overlay,
-  plus a "data preview" panel showing the first 5 rows.
-- Output: each row's result appended to an export CSV
-  (`userData/workflows/{id}/runs/{timestamp}.csv`).
+### Where it lives in the code
+- `src/main/Workflow/WorkflowTypes.ts` — `WorkflowDataset { columns, rows }`,
+  `parameter?: { column }` on `WorkflowInteractionData`, `BulkRunProgress` /
+  `BulkRunResult` types, plus channels `SET_DATASET`, `CLEAR_DATASET`,
+  `SET_RECORDING_DATASET`, `BIND_STEP_TO_COLUMN`, `EXECUTE_BULK`,
+  `BULK_RUN_PROGRESS`, `BULK_RUN_COMPLETE`, `ABORT_BULK`.
+- `src/main/Workflow/WorkflowStore.ts` — `setDataset` / `clearDataset` /
+  `bindStepToColumn` mutate the workflow JSON in place; `appendRunOutput`
+  writes per-run CSVs to `userData/workflows/{id}/runs/{runId}.csv` with the
+  dataset columns plus `_answer` / `_error` columns.
+- `src/main/Workflow/WorkflowRecorder.ts` — holds an "active dataset" during
+  a recording session (persisted onto the saved workflow at stop time);
+  `bindLatestInteraction` rewrites the most-recent matching step's
+  `parameter` field, with a pending-binding map for right-clicks that
+  happen *before* the user types; `hookTab` listens for `context-menu` on
+  editable elements and pops a Bind submenu built from the dataset columns.
+- `src/main/Workflow/WorkflowIpcHandler.ts` — minimal RFC-4180 CSV parser,
+  `attachDataset` / `clearDataset` / `setRecordingDataset` /
+  `bindStepToColumn` / `executeBulk` / `abortBulk`, plus a private
+  `renderAgentPrompt(workflow, override, row)` that emits the current row
+  values into every `Type` step bound to a column (with a fallback
+  `{{ currentRow.column }}` placeholder when no row is supplied).
+- `src/main/Agent/core/AgentOrchestrator.ts` — `runOneShot(goal)` returns a
+  Promise that resolves with the final-answer string when the runner
+  completes, which the bulk loop awaits per row.
+- `src/main/EventManager.ts` — wires the new IPC channels, streams
+  `BULK_RUN_PROGRESS` / `BULK_RUN_COMPLETE` to the sidebar, and hands the
+  orchestrator to the workflow handler at construction time.
+- `src/preload/sidebar.ts` (+ `.d.ts`) — exposes `setWorkflowDataset`,
+  `clearWorkflowDataset`, `setRecordingDataset`, `bindStepToColumn`,
+  `executeBulkWorkflow`, `abortBulkWorkflow`, plus `onBulkRunProgress` /
+  `onBulkRunComplete` listeners.
+- `src/renderer/sidebar/src/contexts/WorkflowContext.tsx` — new state for
+  `recordingDataset`, `bulkProgress`, `bulkResult`; actions for attach /
+  clear / bind / bulk execute / abort.
+- `src/renderer/sidebar/src/components/WorkflowPanel.tsx` — new
+  `DatasetUploader` (file pick + paste, parses CSV client-side); a "Attach
+  data (CSV)" link inside the recording bar that drives in-page
+  right-click binding; a new `WorkflowDetailView` opened from each card's
+  "Open" button, with a dataset section (first-5-rows preview, "Run for
+  all N rows" button, live row-by-row progress bar, output path on
+  completion) and a per-step "from column ▾" dropdown for every
+  interaction step.
+
+### Open follow-ups (not in this PR)
+- **"Extract to column"** for highlighted text — a new step variant that
+  captures text per row and writes it back to the run CSV, complementing
+  the input-binding direction already shipped.
+- **Concurrent rows** — currently the bulk loop is serial. Once Track 3
+  (background tabs) lands, run K rows in parallel against hidden
+  WebContentsViews.
+- **Resumable runs** — if a row fails halfway, surface a "retry failed
+  rows" button instead of forcing a full rerun.
 
 ### Why it ships money
 Bulk = scale = revenue. Cold outreach, list enrichment, lead qualification, invoice
@@ -259,8 +297,8 @@ Execution flow:
 
 1. ~~**Track 5**~~ ✓ shipped — small, self-contained, immediate value on every scrape task.
 2. ~~**Track 1**~~ ✓ shipped — gives Tracks 2 & 4 the real interaction data they need.
-3. **Track 2 (next)** — turns recordings into bulk runs (the primary commercial use case).
-4. **Track 4** — required before any customer trusts Track 2 in production.
+3. ~~**Track 2**~~ ✓ shipped — workflows now loop over a CSV with per-step column bindings.
+4. **Track 4 (next)** — required before any customer trusts Track 2 in production.
 5. **Track 3** — needed once concurrency matters; deferrable until the first 4 prove out.
 
 ---

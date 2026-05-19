@@ -164,6 +164,133 @@ export class AgentOrchestrator {
     return true;
   }
 
+  // Run a single goal end-to-end and resolve with the agent's final answer.
+  // Used by bulk workflow execution where we need to await each row's result.
+  async runOneShot(goal: string): Promise<{
+    sessionId: string;
+    status: AgentSession["status"];
+    answer: string | null;
+    steps: AgentStep[];
+  }> {
+    if (this.activeRunner) {
+      throw new Error("Another agent run is already in progress");
+    }
+
+    const sessionId = uuidv4();
+    const profile = this.classifyTask(goal);
+    const longRunning = profile === "repetitive" || profile === "communication";
+
+    const config: AgentConfig = {
+      maxSteps: this.getMaxSteps(profile, goal),
+      model: "gpt-4o-mini",
+      temperature: 0.7,
+      strategy: "single-tab",
+      maxDurationMs: this.getMaxDurationMs(profile),
+      loopMode: longRunning || this.hasAny(goal, ["while", "until", "repeat"]),
+      taskProfile: profile,
+      targetPaceMs: profile === "repetitive" ? 1200 : 700,
+    };
+
+    const session: AgentSession = {
+      id: sessionId,
+      goal,
+      status: "running",
+      steps: [],
+      currentStep: 0,
+      maxSteps: config.maxSteps,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
+    this.sessions.set(sessionId, session);
+    this.activeSessionId = sessionId;
+
+    const llmClient = this.window.sidebar.client;
+    const strategy = new SingleTabStrategy(this.window, llmClient);
+    const runner = new AgentRunner(config, strategy, llmClient);
+    this.activeRunner = runner;
+
+    return new Promise((resolve) => {
+      runner.setCallbacks(
+        (update) => {
+          const enriched = { ...update, sessionId };
+          this.onStreamUpdate?.(enriched);
+          const sess = this.sessions.get(sessionId);
+          if (sess) {
+            sess.currentStep = update.step;
+            sess.updatedAt = Date.now();
+            if (update.status === "success" || update.status === "error") {
+              const step: AgentStep = {
+                id: uuidv4(),
+                timestamp: Date.now(),
+                action: update.action,
+                result: update.result || { success: true, data: null },
+                screenshot: update.screenshot,
+              };
+              sess.steps.push(step);
+            }
+          }
+        },
+        (steps) => {
+          const sess = this.sessions.get(sessionId);
+          if (sess) {
+            sess.status = "completed";
+            sess.steps = steps;
+            sess.updatedAt = Date.now();
+          }
+          this.activeRunner = null;
+          const answer = this.extractFinishAnswer(steps);
+          resolve({
+            sessionId,
+            status: "completed",
+            answer,
+            steps,
+          });
+        },
+        (error) => {
+          const sess = this.sessions.get(sessionId);
+          if (sess) {
+            sess.status = "error";
+            sess.updatedAt = Date.now();
+          }
+          this.activeRunner = null;
+          resolve({
+            sessionId,
+            status: "error",
+            answer: error,
+            steps: sess?.steps ?? [],
+          });
+        },
+      );
+
+      runner.run(goal).catch((error) => {
+        console.error("[AgentOrchestrator] runOneShot failed:", error);
+        const sess = this.sessions.get(sessionId);
+        if (sess) {
+          sess.status = "error";
+          sess.updatedAt = Date.now();
+        }
+        this.activeRunner = null;
+        resolve({
+          sessionId,
+          status: "error",
+          answer: error instanceof Error ? error.message : String(error),
+          steps: sess?.steps ?? [],
+        });
+      });
+    });
+  }
+
+  private extractFinishAnswer(steps: ReadonlyArray<AgentStep>): string | null {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const step = steps[i];
+      if (step.action.type === "finish") {
+        const answer = (step.action.params as { answer?: string }).answer;
+        return answer ?? null;
+      }
+    }
+    return null;
+  }
+
   getSession(sessionId: string): AgentSession | null {
     return this.sessions.get(sessionId) || null;
   }

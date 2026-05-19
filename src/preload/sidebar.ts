@@ -185,6 +185,81 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("workflow:step-captured");
   },
 
+  setWorkflowDataset: (
+    id: string,
+    dataset: {
+      columns: string[];
+      rows: Record<string, string>[];
+      source?: string;
+    },
+  ) => electronAPI.ipcRenderer.invoke("workflow:set-dataset", id, dataset),
+
+  clearWorkflowDataset: (id: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:clear-dataset", id),
+
+  setRecordingDataset: (
+    dataset: {
+      columns: string[];
+      rows: Record<string, string>[];
+      source?: string;
+    } | null,
+  ) =>
+    electronAPI.ipcRenderer.invoke("workflow:set-recording-dataset", dataset),
+
+  bindStepToColumn: (id: string, stepId: string, column: string | null) =>
+    electronAPI.ipcRenderer.invoke(
+      "workflow:bind-step-to-column",
+      id,
+      stepId,
+      column,
+    ),
+
+  executeBulkWorkflow: (id: string, goalOverride?: string) =>
+    electronAPI.ipcRenderer.invoke("workflow:execute-bulk", id, goalOverride),
+
+  abortBulkWorkflow: () =>
+    electronAPI.ipcRenderer.invoke("workflow:abort-bulk"),
+
+  onBulkRunProgress: (
+    callback: (progress: {
+      workflowId: string;
+      runId: string;
+      rowIndex: number;
+      totalRows: number;
+      status: "running" | "completed" | "error";
+      currentRow: Record<string, string>;
+      answer?: string;
+      error?: string;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("workflow:bulk-run-progress", (_, payload) =>
+      callback(payload),
+    );
+  },
+
+  removeBulkRunProgressListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("workflow:bulk-run-progress");
+  },
+
+  onBulkRunComplete: (
+    callback: (result: {
+      workflowId: string;
+      runId: string;
+      totalRows: number;
+      successes: number;
+      failures: number;
+      csvPath: string;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("workflow:bulk-run-complete", (_, payload) =>
+      callback(payload),
+    );
+  },
+
+  removeBulkRunCompleteListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("workflow:bulk-run-complete");
+  },
+
   getTokenUsage: () =>
     electronAPI.ipcRenderer.invoke("sidebar-get-token-usage"),
 

@@ -2,7 +2,10 @@ import { ipcMain, WebContents } from "electron";
 import type { Window } from "./Window";
 import { AgentIpcHandler } from "./Agent/core/AgentIpcHandler";
 import { WorkflowIpcHandler } from "./Workflow/WorkflowIpcHandler";
-import { WORKFLOW_CHANNELS } from "./Workflow/WorkflowTypes";
+import {
+  WORKFLOW_CHANNELS,
+  type WorkflowDataset,
+} from "./Workflow/WorkflowTypes";
 
 export class EventManager {
   private mainWindow: Window;
@@ -13,6 +16,8 @@ export class EventManager {
     this.mainWindow = mainWindow;
     this.agentHandler = new AgentIpcHandler(mainWindow);
     this.workflowHandler = new WorkflowIpcHandler(mainWindow);
+    // The workflow handler drives bulk runs through the agent orchestrator.
+    this.workflowHandler.setOrchestrator(this.agentHandler.orchestrator);
     this.setupEventHandlers();
     this.setupAgentHandlers();
     this.setupWorkflowHandlers();
@@ -71,6 +76,18 @@ export class EventManager {
         step,
       );
     });
+    this.workflowHandler.setOnBulkProgress((progress) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        WORKFLOW_CHANNELS.BULK_RUN_PROGRESS,
+        progress,
+      );
+    });
+    this.workflowHandler.setOnBulkComplete((result) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        WORKFLOW_CHANNELS.BULK_RUN_COMPLETE,
+        result,
+      );
+    });
 
     ipcMain.handle(WORKFLOW_CHANNELS.START_RECORDING, () => {
       return this.workflowHandler.startRecording();
@@ -127,6 +144,45 @@ export class EventManager {
     // Tab preloads (tabRecorder.ts) push DOM events here while recording is active.
     ipcMain.on(WORKFLOW_CHANNELS.DOM_EVENT, (_event, payload) => {
       this.workflowHandler.handleDomEvent(payload);
+    });
+
+    // Dataset operations
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.SET_DATASET,
+      (_event, id: string, dataset: WorkflowDataset) => {
+        return this.workflowHandler.attachDataset(id, dataset);
+      },
+    );
+
+    ipcMain.handle(WORKFLOW_CHANNELS.CLEAR_DATASET, (_event, id: string) => {
+      return this.workflowHandler.clearDataset(id);
+    });
+
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.SET_RECORDING_DATASET,
+      (_event, dataset: WorkflowDataset | null) => {
+        this.workflowHandler.setRecordingDataset(dataset);
+        return true;
+      },
+    );
+
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.BIND_STEP_TO_COLUMN,
+      (_event, id: string, stepId: string, column: string | null) => {
+        return this.workflowHandler.bindStepToColumn(id, stepId, column);
+      },
+    );
+
+    ipcMain.handle(
+      WORKFLOW_CHANNELS.EXECUTE_BULK,
+      async (_event, id: string, goalOverride?: string) => {
+        return await this.workflowHandler.executeBulk(id, { goalOverride });
+      },
+    );
+
+    ipcMain.handle(WORKFLOW_CHANNELS.ABORT_BULK, () => {
+      this.workflowHandler.abortBulk();
+      return true;
     });
   }
 
