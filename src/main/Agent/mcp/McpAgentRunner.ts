@@ -261,7 +261,7 @@ export class McpAgentRunner {
       navigate: {
         description:
           "Navigate the browser to a URL. Returns fresh page context (URL, text, elements).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             url: { type: "string", description: "Full URL to navigate to" },
@@ -275,7 +275,7 @@ export class McpAgentRunner {
       click: {
         description:
           "Click an element by CSS selector or screen coordinates. Prefer selectors from the interactive elements list; use x/y for CSP-blocked pages.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector" },
@@ -290,7 +290,7 @@ export class McpAgentRunner {
 
       type: {
         description: "Type text into an input field or contenteditable element.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector of element to type into" },
@@ -308,7 +308,7 @@ export class McpAgentRunner {
 
       key: {
         description: "Send a keyboard key (e.g. Enter, Tab, Escape, ArrowDown).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             key: { type: "string", description: 'Key name: Enter, Tab, Escape, ArrowDown, Space, etc.' },
@@ -326,7 +326,7 @@ export class McpAgentRunner {
 
       scroll: {
         description: "Scroll the page up, down, or to a specific element.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             direction: { type: "string", enum: ["up", "down", "to-element"], description: "Scroll direction" },
@@ -341,7 +341,7 @@ export class McpAgentRunner {
 
       wait: {
         description: "Wait for a fixed duration in milliseconds.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             duration: { type: "number", description: "Wait time in ms (default 1000, max 10000)" },
@@ -353,7 +353,7 @@ export class McpAgentRunner {
 
       waitForSelector: {
         description: "Wait until a CSS selector appears in the DOM (useful after navigations or dynamic loads).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector to wait for" },
@@ -368,7 +368,7 @@ export class McpAgentRunner {
 
       select: {
         description: "Select an option from a <select> dropdown by value or visible text.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector of the <select> element" },
@@ -383,7 +383,7 @@ export class McpAgentRunner {
 
       hover: {
         description: "Hover over an element (triggers CSS :hover state and tooltips).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector" },
@@ -397,21 +397,21 @@ export class McpAgentRunner {
 
       back: {
         description: "Navigate back in browser history.",
-        parameters: jsonSchema({ type: "object", properties: {} }),
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
         execute: async () =>
           this.runTool({ type: "back", params: {}, reasoning: "Go back" }),
       },
 
       forward: {
         description: "Navigate forward in browser history.",
-        parameters: jsonSchema({ type: "object", properties: {} }),
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
         execute: async () =>
           this.runTool({ type: "forward", params: {}, reasoning: "Go forward" }),
       },
 
       newTab: {
         description: "Open a new browser tab, optionally loading a URL.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             url: { type: "string", description: "URL to load in the new tab (optional)" },
@@ -423,7 +423,7 @@ export class McpAgentRunner {
 
       switchTab: {
         description: "Switch to a different open tab by index (0-based).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             index: { type: "number", description: "Tab index (0 = first tab)" },
@@ -436,7 +436,7 @@ export class McpAgentRunner {
 
       closeTab: {
         description: "Close a tab by index (default: active tab).",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             index: { type: "number", description: "Tab index to close (default: active)" },
@@ -449,7 +449,7 @@ export class McpAgentRunner {
       screenshot: {
         description:
           "Capture a screenshot to visually inspect the current page. Use when page text and elements aren't enough to understand the layout.",
-        parameters: jsonSchema({ type: "object", properties: {} }),
+        inputSchema: jsonSchema({ type: "object", properties: {} }),
         execute: async () => {
           this.stepNum++;
           const action: AgentAction = { type: "screenshot", params: {}, reasoning: "Capture screenshot" };
@@ -498,7 +498,7 @@ export class McpAgentRunner {
       extract: {
         description:
           "Extract text, HTML, or attribute value from elements matching a CSS selector.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector for target elements" },
@@ -519,7 +519,7 @@ export class McpAgentRunner {
       extractSchema: {
         description:
           "Extract structured tabular data from the page using a field schema. Generates a DOM scraper and collects rows. Use for lists, tables, and repeated items. Results are deduplicated across multiple calls with the same name — ideal for paginated collection.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             name: {
@@ -578,7 +578,7 @@ export class McpAgentRunner {
       executeScript: {
         description:
           "Run custom JavaScript on the page. MANDATORY: user reviews the script before execution. Use for complex form filling, page style injection, or custom extraction that extractSchema cannot handle. Write a self-invoking IIFE that returns a JSON-serializable value.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             script: {
@@ -661,7 +661,7 @@ export class McpAgentRunner {
       waitForApproval: {
         description:
           "Pause and ask the user to review/approve before continuing. Use before irreversible bulk actions, payments, or sends. Include previewData with what you're about to do.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             reason: { type: "string", description: "Why approval is needed + what will happen next" },
@@ -728,7 +728,7 @@ export class McpAgentRunner {
       finish: {
         description:
           "Complete the task and deliver the final answer to the user. For data-collection tasks, include a narrative summary — the runner automatically appends the deduplicated CSV from your extraction buckets. NEVER invent data you didn't extract.",
-        parameters: jsonSchema({
+        inputSchema: jsonSchema({
           type: "object",
           properties: {
             answer: { type: "string", description: "Final answer / summary for the user" },
