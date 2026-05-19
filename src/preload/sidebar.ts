@@ -135,6 +135,77 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("agent:stream-update");
   },
 
+  // HITL approval gate
+  resolveAgentApproval: (
+    id: string,
+    decision: "approve-once" | "approve-all" | "skip" | "stop",
+  ) =>
+    electronAPI.ipcRenderer.invoke("agent:resolve-approval", id, decision),
+
+  getPendingAgentApproval: () =>
+    electronAPI.ipcRenderer.invoke("agent:get-pending-approval"),
+
+  onAgentApprovalRequired: (
+    callback: (request: {
+      id: string;
+      sessionId: string;
+      action: {
+        type: string;
+        params: Record<string, unknown>;
+        reasoning: string;
+      };
+      reason: string;
+      matchedKeyword?: string;
+      elementLabel?: string;
+      previewData?: Record<string, unknown>;
+      screenshot?: string;
+      createdAt: number;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("agent:approval-required", (_, payload) =>
+      callback(payload),
+    );
+  },
+
+  removeAgentApprovalRequiredListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent:approval-required");
+  },
+
+  // Script review gate
+  getPendingAgentScriptReview: () =>
+    electronAPI.ipcRenderer.invoke("agent:get-pending-script-review"),
+
+  resolveAgentScriptReview: (
+    id: string,
+    decision: "approve" | "reject",
+    approvedScript?: string,
+  ) =>
+    electronAPI.ipcRenderer.invoke("agent:resolve-script-review", id, {
+      decision,
+      approvedScript,
+    }),
+
+  onAgentScriptReviewRequired: (
+    callback: (request: {
+      id: string;
+      sessionId: string;
+      script: string;
+      description: string;
+      name?: string;
+      screenshot?: string;
+      createdAt: number;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on(
+      "agent:script-review-required",
+      (_, payload) => callback(payload),
+    );
+  },
+
+  removeAgentScriptReviewRequiredListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent:script-review-required");
+  },
+
   // Workflow functionality
   startWorkflowRecording: () =>
     electronAPI.ipcRenderer.invoke("workflow:start-recording"),
@@ -262,6 +333,12 @@ const sidebarAPI = {
 
   getTokenUsage: () =>
     electronAPI.ipcRenderer.invoke("sidebar-get-token-usage"),
+
+  setSidebarWidth: (width: number): Promise<number> =>
+    electronAPI.ipcRenderer.invoke("sidebar:set-width", width),
+
+  getSidebarWidth: (): Promise<number> =>
+    electronAPI.ipcRenderer.invoke("sidebar:get-width"),
 
   onTokenUsageUpdated: (
     callback: (totals: {

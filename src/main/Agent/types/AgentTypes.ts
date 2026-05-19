@@ -7,6 +7,7 @@ export type ActionType =
   | "wait"
   | "extract"
   | "extractSchema"
+  | "executeScript"
   | "screenshot"
   | "finish"
   | "select"
@@ -16,7 +17,8 @@ export type ActionType =
   | "newTab"
   | "switchTab"
   | "closeTab"
-  | "waitForSelector";
+  | "waitForSelector"
+  | "waitForApproval";
 
 export interface NavigateParams {
   readonly url: string;
@@ -97,6 +99,61 @@ export interface WaitForSelectorParams {
   readonly visible?: boolean;
 }
 
+export interface WaitForApprovalParams {
+  readonly reason: string;
+  readonly previewData?: Readonly<Record<string, unknown>>;
+}
+
+export interface ExecuteScriptParams {
+  readonly script: string;
+  readonly description: string;
+  readonly name?: string;
+}
+
+export type ApprovalDecision =
+  | "approve-once"
+  | "approve-all"
+  | "skip"
+  | "stop";
+
+// Pre-execution gate. The agent has CHOSEN an action — we surface it to the
+// human before it actually runs and let them veto / batch-approve.
+export interface ApprovalRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly action: AgentAction;
+  readonly reason: string;
+  readonly matchedKeyword?: string;
+  readonly elementLabel?: string;
+  readonly previewData?: Readonly<Record<string, unknown>>;
+  readonly screenshot?: string;
+  readonly createdAt: number;
+}
+
+export interface ApprovalResolved {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly decision: ApprovalDecision;
+  readonly resolvedAt: number;
+}
+
+export interface ScriptReviewRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly script: string;
+  readonly description: string;
+  readonly name?: string;
+  readonly screenshot?: string;
+  readonly createdAt: number;
+}
+
+export type ScriptReviewDecision = "approve" | "reject";
+
+export interface ScriptReviewResolution {
+  readonly decision: ScriptReviewDecision;
+  readonly approvedScript?: string;
+}
+
 export interface TabInfo {
   readonly id: string;
   readonly index: number;
@@ -133,6 +190,8 @@ export type ActionParamsMap = {
   switchTab: SwitchTabParams;
   closeTab: CloseTabParams;
   waitForSelector: WaitForSelectorParams;
+  waitForApproval: WaitForApprovalParams;
+  executeScript: ExecuteScriptParams;
 };
 
 export interface AgentAction {
@@ -157,6 +216,25 @@ export interface AgentStep {
   readonly screenshot?: string;
 }
 
+export type SubgoalStatus = "pending" | "in_progress" | "done" | "failed";
+
+export interface Subgoal {
+  readonly text: string;
+  readonly status: SubgoalStatus;
+}
+
+export interface ActionVerdict {
+  readonly worked: boolean;
+  readonly note: string;
+}
+
+export interface CollectedBucketSummary {
+  readonly name: string;
+  readonly count: number;
+  readonly sample: ReadonlyArray<unknown>;
+  readonly fields: ReadonlyArray<string>;
+}
+
 export interface AgentContext {
   readonly goal: string;
   readonly history: ReadonlyArray<AgentStep>;
@@ -170,6 +248,16 @@ export interface AgentContext {
   readonly remainingMs?: number;
   readonly interactiveElements?: string | null;
   readonly tabs?: ReadonlyArray<TabInfo>;
+  // Self-tracking state. All optional — the agent maintains these via JSON
+  // fields on its turn output and the runner echoes them back every step.
+  readonly acceptanceCriteria?: string;
+  readonly subgoals?: ReadonlyArray<Subgoal>;
+  readonly progressNote?: string;
+  readonly lastVerdict?: ActionVerdict | null;
+  readonly collectedSummary?: ReadonlyArray<CollectedBucketSummary>;
+  readonly repeatedActionCount?: number;
+  readonly repeatedActionSignature?: string;
+  readonly stepNumber?: number;
 }
 
 export interface AgentConfig {
@@ -204,6 +292,11 @@ export interface TabStrategy {
   captureScreenshot(maxWidth?: number): Promise<string | null>;
   getPageText(): Promise<string | null>;
   getCurrentUrl(): Promise<string | null>;
+  // Optional: resolve the visible label / nearby text of the action's target
+  // element. Used by the HITL approval gate to detect destructive buttons.
+  // Return null when the label cannot be determined (e.g. coord-only clicks
+  // on CSP'd pages); callers fall back to keyword scanning of the action.
+  getActionLabel?(action: AgentAction): Promise<string | null>;
 }
 
 export interface AgentStreamUpdate {
@@ -214,6 +307,12 @@ export interface AgentStreamUpdate {
   readonly result?: ActionResult;
   readonly screenshot?: string;
   readonly sessionId: string;
+  // Optional self-tracking fields, surfaced to the UI for progress display.
+  readonly subgoal?: string;
+  readonly progress?: string;
+  readonly verifyLast?: ActionVerdict;
+  readonly subgoals?: ReadonlyArray<Subgoal>;
+  readonly acceptanceCriteria?: string;
 }
 
 export interface AgentSessionRequest {

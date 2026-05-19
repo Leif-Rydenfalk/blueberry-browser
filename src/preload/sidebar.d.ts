@@ -25,6 +25,16 @@ interface AgentSessionRequest {
   readonly mode: "single-tab" | "multi-tab";
 }
 
+interface AgentSubgoal {
+  readonly text: string;
+  readonly status: "pending" | "in_progress" | "done" | "failed";
+}
+
+interface AgentActionVerdict {
+  readonly worked: boolean;
+  readonly note: string;
+}
+
 interface AgentStreamUpdate {
   readonly step: number;
   readonly totalSteps: number;
@@ -41,6 +51,39 @@ interface AgentStreamUpdate {
   };
   readonly screenshot?: string;
   readonly sessionId: string;
+  readonly subgoal?: string;
+  readonly progress?: string;
+  readonly verifyLast?: AgentActionVerdict;
+  readonly subgoals?: ReadonlyArray<AgentSubgoal>;
+  readonly acceptanceCriteria?: string;
+}
+
+type ApprovalDecision = "approve-once" | "approve-all" | "skip" | "stop";
+
+interface ScriptReviewRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly script: string;
+  readonly description: string;
+  readonly name?: string;
+  readonly screenshot?: string;
+  readonly createdAt: number;
+}
+
+interface ApprovalRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly action: {
+    readonly type: string;
+    readonly params: Record<string, unknown>;
+    readonly reasoning: string;
+  };
+  readonly reason: string;
+  readonly matchedKeyword?: string;
+  readonly elementLabel?: string;
+  readonly previewData?: Record<string, unknown>;
+  readonly screenshot?: string;
+  readonly createdAt: number;
 }
 
 interface ModelOption {
@@ -164,6 +207,25 @@ interface SidebarAPI {
   }>;
   onAgentUpdate: (callback: (data: AgentStreamUpdate) => void) => void;
   removeAgentUpdateListener: () => void;
+  resolveAgentApproval: (
+    id: string,
+    decision: ApprovalDecision,
+  ) => Promise<boolean>;
+  getPendingAgentApproval: () => Promise<ApprovalRequest | null>;
+  onAgentApprovalRequired: (
+    callback: (request: ApprovalRequest) => void,
+  ) => void;
+  removeAgentApprovalRequiredListener: () => void;
+  getPendingAgentScriptReview: () => Promise<ScriptReviewRequest | null>;
+  resolveAgentScriptReview: (
+    id: string,
+    decision: "approve" | "reject",
+    approvedScript?: string,
+  ) => Promise<boolean>;
+  onAgentScriptReviewRequired: (
+    callback: (request: ScriptReviewRequest) => void,
+  ) => void;
+  removeAgentScriptReviewRequiredListener: () => void;
   // Workflow
   startWorkflowRecording: () => Promise<RecordingState>;
   stopWorkflowRecording: (name: string) => Promise<WorkflowSummary | null>;
@@ -207,6 +269,8 @@ interface SidebarAPI {
   getTokenUsage: () => Promise<TokenUsageTotals | null>;
   onTokenUsageUpdated: (callback: (totals: TokenUsageTotals) => void) => void;
   removeTokenUsageUpdatedListener: () => void;
+  setSidebarWidth: (width: number) => Promise<number>;
+  getSidebarWidth: () => Promise<number>;
 }
 
 declare global {

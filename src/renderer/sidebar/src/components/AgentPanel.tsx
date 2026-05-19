@@ -23,6 +23,9 @@ import {
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
+import { ApprovalSheet } from "./ApprovalSheet";
+import { ScriptReviewSheet } from "./ScriptReviewSheet";
+import { CsvViewer } from "./CsvViewer";
 
 interface ModelOption {
   readonly provider: "openai" | "anthropic";
@@ -49,7 +52,10 @@ const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
     case "screenshot":
       return <Camera className="size-3" />;
     case "extract":
+    case "extractSchema":
       return <Search className="size-3" />;
+    case "executeScript":
+      return <Send className="size-3" />;
     case "finish":
       return <Flag className="size-3" />;
     default:
@@ -74,6 +80,43 @@ const StatusIcon: React.FC<{ status: string }> = ({ status }) => {
   }
 };
 
+// Pull plain text out of a react-markdown code-block child tree. The model's
+// CSV lives inside a `pre > code.language-csv` whose children is the raw text,
+// often wrapped in nested React nodes when react-markdown processes line breaks.
+const extractText = (node: React.ReactNode): string => {
+  if (typeof node === "string") return node;
+  if (typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (React.isValidElement(node)) {
+    const props = node.props as { children?: React.ReactNode };
+    return extractText(props.children);
+  }
+  return "";
+};
+
+const markdownComponents = {
+  // Replace fenced CSV blocks with the rich viewer (table + copy + download).
+  // Other code blocks render with default prose styles.
+  pre: ({ children, ...rest }: React.HTMLAttributes<HTMLPreElement>) => {
+    const child = React.Children.toArray(children)[0];
+    if (React.isValidElement(child)) {
+      const childProps = child.props as {
+        className?: string;
+        children?: React.ReactNode;
+      };
+      const language = (childProps.className || "")
+        .split(" ")
+        .find((c) => c.startsWith("language-"))
+        ?.replace("language-", "");
+      if (language === "csv") {
+        const csv = extractText(childProps.children).replace(/\n$/, "");
+        return <CsvViewer csv={csv} />;
+      }
+    }
+    return <pre {...rest}>{children}</pre>;
+  },
+};
+
 const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
   <div
     className="prose prose-sm dark:prose-invert max-w-none
@@ -82,7 +125,10 @@ const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
     prose-code:bg-secondary prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-xs prose-code:font-mono
     prose-pre:bg-secondary dark:prose-pre:bg-secondary/50 prose-pre:p-3 prose-pre:rounded-xl prose-pre:text-xs"
   >
-    <ReactMarkdown remarkPlugins={[remarkGfm, remarkBreaks]}>
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm, remarkBreaks]}
+      components={markdownComponents}
+    >
       {content}
     </ReactMarkdown>
   </div>
@@ -101,7 +147,10 @@ const getActionSummary = (step: AgentStep) => {
     case "scroll":
       return `Scroll ${(step.action.params as any).direction || ""}`;
     case "extract":
+    case "extractSchema":
       return `Extract ${(step.action.params as any).name || "data"}`;
+    case "executeScript":
+      return (step.action.params as any).description || "Run script";
     case "screenshot":
       return "Screenshot";
     case "finish":
@@ -181,10 +230,14 @@ export const AgentPanel: React.FC = () => {
     currentStep,
     maxSteps,
     goal,
+    pendingApproval,
+    pendingScriptReview,
     startAgent,
     abortAgent,
     sendMessage,
     clearAgent,
+    resolveApproval,
+    resolveScriptReview,
   } = useAgent();
   const [input, setInput] = useState("");
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
@@ -278,55 +331,79 @@ export const AgentPanel: React.FC = () => {
     : "";
 
   return (
-    <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-border/50">
-        <div className="flex items-center gap-2.5">
-          <span className="text-sm font-semibold">Blueberry AI</span>
-          {isRunning && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="size-1.5 rounded-full bg-primary animate-pulse shrink-0" />
-              working
+    <div className="relative flex flex-col h-full bg-background">
+      {/* Header — two rows so brand, status, model picker, and actions never crowd each other */}
+      <div className="border-b border-border/50">
+        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-base shrink-0">🫐</span>
+            <span className="text-sm font-semibold text-foreground truncate">
+              Blueberry AI
             </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5">
-          <select
-            value={selectedModelValue}
-            onChange={(event) => handleModelChange(event.target.value)}
-            disabled={isRunning || modelOptions.length === 0}
-            className="text-xs text-muted-foreground bg-transparent border-0 outline-none cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 hover:text-foreground transition-colors"
-            title={modelError || modelSelection?.label || "Model"}
-          >
-            {modelOptions.map((option) => (
-              <option
-                key={`${option.provider}:${option.model}`}
-                value={`${option.provider}:${option.model}`}
+            {isRunning && (
+              <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0">
+                <span className="size-1.5 rounded-full bg-primary animate-pulse" />
+                working
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {messages.length > 0 && !isRunning && (
+              <Button
+                onClick={clearAgent}
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs gap-1 px-2.5"
               >
-                {option.label}
-              </option>
-            ))}
-          </select>
-          {messages.length > 0 && !isRunning && (
-            <Button
-              onClick={clearAgent}
-              variant="ghost"
-              size="sm"
-              className="h-7 text-xs gap-1"
+                <Square className="size-3" /> Clear
+              </Button>
+            )}
+            {isRunning && (
+              <Button
+                onClick={abortAgent}
+                variant="destructive"
+                size="sm"
+                className="h-7 text-xs gap-1 px-2.5"
+              >
+                <Square className="size-3" /> Stop
+              </Button>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center px-4 pb-2.5">
+          <div
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg max-w-full",
+              "bg-secondary/50 hover:bg-secondary transition-colors",
+              "border border-border/40",
+              (isRunning || modelOptions.length === 0) &&
+                "opacity-60 cursor-not-allowed",
+            )}
+          >
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70 shrink-0">
+              Model
+            </span>
+            <select
+              value={selectedModelValue}
+              onChange={(event) => handleModelChange(event.target.value)}
+              disabled={isRunning || modelOptions.length === 0}
+              className={cn(
+                "text-xs text-foreground bg-transparent border-0 outline-none",
+                "cursor-pointer disabled:cursor-not-allowed",
+                "min-w-0 flex-1 truncate",
+              )}
+              title={modelError || modelSelection?.label || "Model"}
             >
-              <Square className="size-3" /> Clear
-            </Button>
-          )}
-          {isRunning && (
-            <Button
-              onClick={abortAgent}
-              variant="destructive"
-              size="sm"
-              className="h-7 text-xs gap-1"
-            >
-              <Square className="size-3" /> Stop
-            </Button>
-          )}
+              {modelOptions.map((option) => (
+                <option
+                  key={`${option.provider}:${option.model}`}
+                  value={`${option.provider}:${option.model}`}
+                >
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
       {modelError && (
@@ -451,6 +528,20 @@ export const AgentPanel: React.FC = () => {
           </div>
         )}
       </div>
+
+      {pendingApproval && (
+        <ApprovalSheet
+          request={pendingApproval}
+          onResolve={resolveApproval}
+        />
+      )}
+
+      {pendingScriptReview && !pendingApproval && (
+        <ScriptReviewSheet
+          request={pendingScriptReview}
+          onResolve={resolveScriptReview}
+        />
+      )}
     </div>
   );
 };

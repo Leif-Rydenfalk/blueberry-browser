@@ -7,6 +7,10 @@ import type {
   AgentStreamUpdate,
   AgentSessionRequest,
   AgentTaskProfile,
+  ApprovalDecision,
+  ApprovalRequest,
+  ScriptReviewRequest,
+  ScriptReviewResolution,
 } from "../types/AgentTypes";
 import { SingleTabStrategy } from "../strategies/SingleTabStrategy";
 import { AgentRunner } from "./AgentRunner";
@@ -17,6 +21,12 @@ export class AgentOrchestrator {
   private activeRunner: AgentRunner | null = null;
   private activeSessionId: string | null = null;
   private onStreamUpdate: ((update: AgentStreamUpdate) => void) | null = null;
+  private onApprovalRequired:
+    | ((request: ApprovalRequest) => void)
+    | null = null;
+  private onScriptReviewRequired:
+    | ((request: ScriptReviewRequest) => void)
+    | null = null;
 
   constructor(window: Window) {
     this.window = window;
@@ -24,6 +34,32 @@ export class AgentOrchestrator {
 
   setStreamCallback(callback: (update: AgentStreamUpdate) => void): void {
     this.onStreamUpdate = callback;
+  }
+
+  setApprovalCallback(callback: (request: ApprovalRequest) => void): void {
+    this.onApprovalRequired = callback;
+  }
+
+  setScriptReviewCallback(
+    callback: (request: ScriptReviewRequest) => void,
+  ): void {
+    this.onScriptReviewRequired = callback;
+  }
+
+  resolveApproval(id: string, decision: ApprovalDecision): boolean {
+    return this.activeRunner?.resolveApproval(id, decision) ?? false;
+  }
+
+  getPendingApproval(): ApprovalRequest | null {
+    return this.activeRunner?.getPendingApproval() ?? null;
+  }
+
+  resolveScriptReview(id: string, resolution: ScriptReviewResolution): boolean {
+    return this.activeRunner?.resolveScriptReview(id, resolution) ?? false;
+  }
+
+  getPendingScriptReview(): ScriptReviewRequest | null {
+    return this.activeRunner?.getPendingScriptReview() ?? null;
   }
 
   async startSession(request: AgentSessionRequest): Promise<AgentSession> {
@@ -67,6 +103,13 @@ export class AgentOrchestrator {
     // Create runner
     const runner = new AgentRunner(config, strategy, llmClient);
     this.activeRunner = runner;
+
+    runner.setApprovalCallback((request) => {
+      this.onApprovalRequired?.({ ...request, sessionId });
+    });
+    runner.setScriptReviewCallback((request) => {
+      this.onScriptReviewRequired?.({ ...request, sessionId });
+    });
 
     // Set up callbacks
     runner.setCallbacks(
@@ -209,6 +252,13 @@ export class AgentOrchestrator {
     const runner = new AgentRunner(config, strategy, llmClient);
     this.activeRunner = runner;
 
+    runner.setApprovalCallback((request) => {
+      this.onApprovalRequired?.({ ...request, sessionId });
+    });
+    runner.setScriptReviewCallback((request) => {
+      this.onScriptReviewRequired?.({ ...request, sessionId });
+    });
+
     return new Promise((resolve) => {
       runner.setCallbacks(
         (update) => {
@@ -340,6 +390,13 @@ export class AgentOrchestrator {
       return "communication";
     }
 
+    // Data-collection tasks (gather N stocks, build a spreadsheet, scrape a list,
+    // extract a table) are research-grade — they need multiple paginations and
+    // verifications, not a 20-step quick budget.
+    if (this.isDataCollectionGoal(goal)) {
+      return "research";
+    }
+
     if (
       this.hasAny(goal, ["find", "research", "compare", "look up", "browse"])
     ) {
@@ -349,14 +406,39 @@ export class AgentOrchestrator {
     return "quick";
   }
 
+  private isDataCollectionGoal(goal: string): boolean {
+    return this.hasAny(goal, [
+      "spreadsheet",
+      "csv",
+      "table",
+      "gather",
+      "collect",
+      "scrape",
+      "extract",
+      "list of",
+      "compile",
+      "rows",
+      "dataset",
+      "tabulate",
+    ]);
+  }
+
   private getMaxSteps(profile: AgentTaskProfile, goal: string): number {
-    const explicitCount = goal.match(
-      /\b(\d{1,3})\s+(videos?|posts?|emails?|messages?|items?|times?|likes?|replies?)\b/i,
-    );
+    // Match "N X" where X is any plural-ish noun the user might pick when
+    // asking for a count. Broader than the old hardcoded list — "50 pieces
+    // of stock data" or "100 products" both land here.
+    const explicitCount =
+      goal.match(
+        /\b(\d{1,4})\s+(videos?|posts?|emails?|messages?|items?|times?|likes?|replies?|rows?|stocks?|products?|results?|entries?|records?|pieces?|tickers?|companies|companys?|articles?|users?|profiles?|listings?|coins?|tokens?|reviews?|comments?|tweets?)\b/i,
+      ) ||
+      // Fallback: numeric count + data-collection verb in same goal.
+      (this.isDataCollectionGoal(goal)
+        ? goal.match(/\b(\d{1,4})\b/)
+        : null);
     if (explicitCount) {
       const requested = Number(explicitCount[1]);
       if (Number.isFinite(requested) && requested > 0) {
-        return Math.min(Math.max(requested * 6, 30), 500);
+        return Math.min(Math.max(requested * 6, 40), 500);
       }
     }
 

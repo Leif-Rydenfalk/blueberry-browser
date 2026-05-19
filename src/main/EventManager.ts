@@ -53,12 +53,52 @@ export class EventManager {
       return this.agentHandler.getStatus();
     });
 
+    ipcMain.handle(
+      "agent:resolve-approval",
+      (
+        _,
+        id: string,
+        decision: "approve-once" | "approve-all" | "skip" | "stop",
+      ) => {
+        return this.agentHandler.resolveApproval(id, decision);
+      },
+    );
+
+    ipcMain.handle("agent:get-pending-approval", () => {
+      return this.agentHandler.getPendingApproval();
+    });
+
     // Broadcasts agent updates to sidebar UI
     this.agentHandler.onUpdate((update) => {
       this.mainWindow.sidebar.view.webContents.send(
         "agent:stream-update",
         update,
       );
+    });
+
+    this.agentHandler.onApprovalRequired((request) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        "agent:approval-required",
+        request,
+      );
+    });
+
+    this.agentHandler.onScriptReviewRequired((request) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        "agent:script-review-required",
+        request,
+      );
+    });
+
+    ipcMain.handle(
+      "agent:resolve-script-review",
+      (_, id: string, resolution: { decision: "approve" | "reject"; approvedScript?: string }) => {
+        return this.agentHandler.resolveScriptReview(id, resolution);
+      },
+    );
+
+    ipcMain.handle("agent:get-pending-script-review", () => {
+      return this.agentHandler.getPendingScriptReview();
     });
   }
 
@@ -307,6 +347,16 @@ export class EventManager {
       this.mainWindow.sidebar.toggle();
       this.mainWindow.updateAllBounds();
       return true;
+    });
+
+    ipcMain.handle("sidebar:set-width", (_, width: number) => {
+      const applied = this.mainWindow.sidebar.setWidth(width);
+      this.mainWindow.updateAllBounds();
+      return applied;
+    });
+
+    ipcMain.handle("sidebar:get-width", () => {
+      return this.mainWindow.sidebar.getWidth();
     });
 
     ipcMain.handle("sidebar-chat-message", async (_, request) => {

@@ -11,6 +11,7 @@ import type {
   WaitParams,
   ExtractParams,
   ExtractSchemaParams,
+  ExecuteScriptParams,
   SelectParams,
   HoverParams,
   WaitForSelectorParams,
@@ -43,8 +44,28 @@ Hard rules — violating any of these fails the run:
 6. Cap your loop at the requested limit. Skip rows where every field would be empty.
 7. NEVER call: fetch, XMLHttpRequest, eval, Function, window.open, location.assign, localStorage, navigator.sendBeacon. NEVER mutate the page.
 8. Wrap your top-level logic in try/catch and on failure return []. Do NOT throw.
+9. NEVER put the same DOM element's text into multiple schema fields. If you do, the data is corrupt. Instead, parse the text — see MULTI-VALUE CELLS below.
 
-Skeleton:
+MULTI-VALUE CELLS (critical for financial / tabular pages):
+When two or more schema fields' descriptions reference parts of the same cell (e.g. "first decimal", "second value", "percent in parens"), the page is rendering multiple values in one DOM element. Parse the cell's textContent:
+
+  var cellText = (el.querySelector('CELL_SELECTOR')?.textContent || '').replace(/\\s+/g, ' ').trim();
+  // For "111.94 +3.70 (+3.42%)":
+  var price = (cellText.match(/^[\\d,]+\\.?\\d*/) || [''])[0];          // "111.94"
+  var change = (cellText.match(/[+-][\\d,]+\\.?\\d*/) || [''])[0];      // "+3.70"
+  var percent = (cellText.match(/\\([+-]?[\\d,]+\\.?\\d*%?\\)/) || [''])[0]; // "(+3.42%)"
+
+Common patterns to recognise from schema hints:
+- "first / second / third value in the cell" → split on whitespace OR use sequential regex matches
+- "unsigned decimal" → match /[\\d,]+\\.?\\d*/
+- "signed decimal" → match /[+-][\\d,]+\\.?\\d*/
+- "percentage in parens" → match /\\([+-]?[\\d,]+\\.?\\d*%?\\)/
+- "comes after X" → use String.indexOf or sequential regex
+- "ONLY X, EXCLUDE Y" → if Y is described as adjacent, you have a multi-value cell — parse, don't lump
+
+If a hint mentions both a position ("first", "second") and a shape ("decimal", "with sign", "in parens"), the value lives in a shared cell — parse the cell text accordingly.
+
+Skeleton (single-value cells):
 (function() {
   try {
     var items = document.querySelectorAll('SELECTOR');
@@ -54,6 +75,28 @@ Skeleton:
       var row = {
         field1: (el.querySelector('...') || {}).textContent ? el.querySelector('...').textContent.trim() : '',
         // ...
+      };
+      out.push(row);
+    }
+    return out;
+  } catch (e) { return []; }
+})()
+
+Skeleton (multi-value cell — price/change/percent in one td):
+(function() {
+  try {
+    var items = document.querySelectorAll('SELECTOR');
+    var out = [];
+    for (var i = 0; i < items.length && out.length < LIMIT; i++) {
+      var el = items[i];
+      var priceCell = ((el.querySelector('PRICE_CELL_SEL') || {}).textContent || '').replace(/\\s+/g, ' ').trim();
+      var priceMatch = priceCell.match(/^[\\d,]+\\.?\\d*/);
+      var changeMatch = priceCell.match(/[+-][\\d,]+\\.?\\d*(?!%)/);
+      var pctMatch = priceCell.match(/\\([+-]?[\\d,]+\\.?\\d*%?\\)/);
+      var row = {
+        price: priceMatch ? priceMatch[0] : '',
+        change: changeMatch ? changeMatch[0] : '',
+        percent: pctMatch ? pctMatch[0] : '',
       };
       out.push(row);
     }
@@ -100,6 +143,11 @@ export class ActionExecutor {
           return await this.executeExtractSchema(
             tab,
             action.params as ExtractSchemaParams,
+          );
+        case "executeScript":
+          return await this.executeScript(
+            tab,
+            action.params as ExecuteScriptParams,
           );
         case "screenshot": {
           const image = await tab.screenshot({ maxWidth: 800 });
@@ -690,6 +738,33 @@ export class ActionExecutor {
       success: true,
       data: { [params.name]: rows },
     };
+  }
+
+  private async executeScript(
+    tab: Tab,
+    params: ExecuteScriptParams,
+  ): Promise<ActionResult> {
+    try {
+      const raw = await tab.runJs(params.script);
+      return {
+        success: true,
+        data: { [params.name ?? "result"]: raw },
+      };
+    } catch (error) {
+      const msg =
+        error instanceof Error ? error.message : "Script execution failed";
+      const isCSP =
+        msg.includes("Script failed to execute") ||
+        msg.includes("CSP") ||
+        msg.includes("Content Security Policy");
+      return {
+        success: false,
+        error: isCSP
+          ? "CSP_BLOCKED: This page prevents script execution."
+          : msg,
+        recoverable: !isCSP,
+      };
+    }
   }
 
   private async samplePageStructure(

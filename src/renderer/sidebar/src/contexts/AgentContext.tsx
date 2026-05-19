@@ -34,6 +34,38 @@ export interface AgentMessage {
   stepData?: AgentStep;
 }
 
+export type ApprovalDecision =
+  | "approve-once"
+  | "approve-all"
+  | "skip"
+  | "stop";
+
+export interface ApprovalRequest {
+  id: string;
+  sessionId: string;
+  action: {
+    type: string;
+    params: Record<string, unknown>;
+    reasoning: string;
+  };
+  reason: string;
+  matchedKeyword?: string;
+  elementLabel?: string;
+  previewData?: Record<string, unknown>;
+  screenshot?: string;
+  createdAt: number;
+}
+
+export interface ScriptReviewRequest {
+  id: string;
+  sessionId: string;
+  script: string;
+  description: string;
+  name?: string;
+  screenshot?: string;
+  createdAt: number;
+}
+
 interface AgentContextType {
   steps: AgentStep[];
   messages: AgentMessage[];
@@ -42,10 +74,21 @@ interface AgentContextType {
   maxSteps: number;
   goal: string;
   sessionId: string | null;
+  pendingApproval: ApprovalRequest | null;
+  pendingScriptReview: ScriptReviewRequest | null;
   startAgent: (goal: string) => Promise<void>;
   abortAgent: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   clearAgent: () => void;
+  resolveApproval: (
+    id: string,
+    decision: ApprovalDecision,
+  ) => Promise<void>;
+  resolveScriptReview: (
+    id: string,
+    decision: "approve" | "reject",
+    approvedScript?: string,
+  ) => Promise<void>;
 }
 
 const AgentContext = createContext<AgentContextType | null>(null);
@@ -68,6 +111,10 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   const [maxSteps, setMaxSteps] = useState(15);
   const [goal, setGoal] = useState("");
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [pendingApproval, setPendingApproval] =
+    useState<ApprovalRequest | null>(null);
+  const [pendingScriptReview, setPendingScriptReview] =
+    useState<ScriptReviewRequest | null>(null);
 
   const addUserMessage = useCallback((content: string) => {
     setMessages((prev) => [
@@ -132,7 +179,49 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     setCurrentStep(0);
     setGoal("");
     setSessionId(null);
+    setPendingApproval(null);
+    setPendingScriptReview(null);
   }, []);
+
+  const resolveApproval = useCallback(
+    async (id: string, decision: ApprovalDecision): Promise<void> => {
+      try {
+        await window.sidebarAPI.resolveAgentApproval(id, decision);
+      } catch (error) {
+        console.error("Failed to resolve approval:", error);
+      } finally {
+        setPendingApproval(
+          (current): ApprovalRequest | null =>
+            current?.id === id ? null : current,
+        );
+      }
+    },
+    [],
+  );
+
+  const resolveScriptReview = useCallback(
+    async (
+      id: string,
+      decision: "approve" | "reject",
+      approvedScript?: string,
+    ): Promise<void> => {
+      try {
+        await window.sidebarAPI.resolveAgentScriptReview(
+          id,
+          decision,
+          approvedScript,
+        );
+      } catch (error) {
+        console.error("Failed to resolve script review:", error);
+      } finally {
+        setPendingScriptReview(
+          (current): ScriptReviewRequest | null =>
+            current?.id === id ? null : current,
+        );
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const handleAgentUpdate = (data: any) => {
@@ -214,6 +303,45 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, []);
 
+  useEffect(() => {
+    const handleApprovalRequired = (request: ApprovalRequest): void => {
+      setPendingApproval(request);
+    };
+    window.sidebarAPI.onAgentApprovalRequired(handleApprovalRequired);
+
+    // Recover from a remount mid-gate.
+    window.sidebarAPI
+      .getPendingAgentApproval()
+      .then((request) => {
+        if (request) setPendingApproval(request);
+      })
+      .catch(() => {});
+
+    return () => {
+      window.sidebarAPI.removeAgentApprovalRequiredListener();
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleScriptReviewRequired = (
+      request: ScriptReviewRequest,
+    ): void => {
+      setPendingScriptReview(request);
+    };
+    window.sidebarAPI.onAgentScriptReviewRequired(handleScriptReviewRequired);
+
+    window.sidebarAPI
+      .getPendingAgentScriptReview()
+      .then((request) => {
+        if (request) setPendingScriptReview(request);
+      })
+      .catch(() => {});
+
+    return () => {
+      window.sidebarAPI.removeAgentScriptReviewRequiredListener();
+    };
+  }, []);
+
   const value: AgentContextType = {
     steps,
     messages,
@@ -222,10 +350,14 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     maxSteps,
     goal,
     sessionId,
+    pendingApproval,
+    pendingScriptReview,
     startAgent,
     abortAgent,
     sendMessage,
     clearAgent,
+    resolveApproval,
+    resolveScriptReview,
   };
 
   return (
