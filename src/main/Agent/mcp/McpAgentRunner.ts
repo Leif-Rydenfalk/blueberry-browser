@@ -225,7 +225,8 @@ export class McpAgentRunner {
         system,
         prompt: initialPrompt,
         abortSignal: this.abortController.signal,
-        temperature: this.config.temperature,
+        // temperature not set — Opus 4.7 doesn't support it; models that do
+        // use their default (0.0 for tool use is best anyway)
       });
 
       // If finish was not called explicitly, emit a budget-exhausted finish
@@ -1142,8 +1143,8 @@ Destructive elements (Send, Pay, Delete, Confirm) automatically trigger an appro
 SIGN-IN WALLS
 Use waitForApproval to ask the user to log in, then continue after they approve.
 
-COMPLETION
-Call finish when the task is done. The answer should be a narrative summary — the system handles data attachment. Be honest about what you accomplished. If you ran out of steps or hit a wall, say so.
+COMPLETION — MANDATORY
+You MUST call the finish tool to end every session, without exception. Never generate a plain text response as your final action — always use a tool call. If you have an answer ready, call finish(answer=...) immediately. If you hit a wall or run out of ideas, call finish and honestly describe what happened. There is no valid reason to output text without also calling a tool.
 
 Always use browser evidence only — never answer from training knowledge when the task involves live web data.`;
   }

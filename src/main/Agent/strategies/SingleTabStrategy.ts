@@ -130,8 +130,10 @@ export class SingleTabStrategy implements TabStrategy {
     const tab = this.activeTab;
     if (!tab) return null;
     try {
-      const image = await tab.screenshot({ maxWidth });
-      return image.toDataURL();
+      // capturePage() can hang indefinitely on headless/offscreen surfaces — race with a timeout
+      const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+      const capture = tab.screenshot({ maxWidth }).then((img) => img.toDataURL()).catch(() => null);
+      return await Promise.race([capture, timeout]);
     } catch (error) {
       console.error("[SingleTabStrategy] Screenshot failed:", error);
       return null;

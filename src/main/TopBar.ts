@@ -33,7 +33,7 @@ export class TopBar {
       webContentsView.webContents.loadURL(topbarUrl.toString());
     } else {
       webContentsView.webContents.loadFile(
-        join(__dirname, "../renderer/topbar.html"),
+        join(__dirname, "../renderer/topbar/index.html"),
       );
     }
 

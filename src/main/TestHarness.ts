@@ -125,6 +125,17 @@ export class TestHarness {
 
       const orchestrator = new AgentOrchestrator(this.window);
 
+      // Auto-approve HITL gates in test mode — no human present to review.
+      // This lets the agent test executeScript and waitForApproval flows end-to-end.
+      orchestrator.setApprovalCallback((request) => {
+        console.log(`  ${c("yellow", "⚡")} ${c("dim", `Auto-approving HITL gate: ${request.reason.substring(0, 60)}`)}`);
+        orchestrator.resolveApproval(request.id, "approve-all");
+      });
+      orchestrator.setScriptReviewCallback((request) => {
+        console.log(`  ${c("yellow", "⚡")} ${c("dim", `Auto-approving script review: ${request.description.substring(0, 60)}`)}`);
+        orchestrator.resolveScriptReview(request.id, { decision: "approve" });
+      });
+
       // Wire up step logging
       let lastStepStart = Date.now();
       orchestrator.setStreamCallback((update: AgentStreamUpdate) => {

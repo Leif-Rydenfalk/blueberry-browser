@@ -2,7 +2,7 @@ read CODING_STANDARDS.md before writing code
 read DESIGN.md before writing ui code
 read README.md for an overview of what the assignment was and an overview of the project.
 
-Dont take credit for commits - give all credits to me Leif Rydenfalk - ledamecrydenfalk@gmail.com
+Dont take credit for commits - give all credits to me Leif Rydenfalk - ledamecrydenfalk@gmail.com. Always commit everything.
 
 Always document everything for future ai and human dev reference. But dont overdocument to save tokens. 
 
