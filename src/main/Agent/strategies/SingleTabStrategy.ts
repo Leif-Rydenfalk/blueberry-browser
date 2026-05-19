@@ -1,5 +1,6 @@
 import type { Tab } from "../../Tab";
 import type { Window } from "../../Window";
+import type { LLMClient } from "../../LLMClient";
 import type {
   TabStrategy,
   AgentAction,
@@ -17,9 +18,9 @@ export class SingleTabStrategy implements TabStrategy {
   private window: Window;
   private executor: ActionExecutor;
 
-  constructor(window: Window) {
+  constructor(window: Window, llmClient: LLMClient) {
     this.window = window;
-    this.executor = new ActionExecutor();
+    this.executor = new ActionExecutor(llmClient);
   }
 
   private get activeTab(): Tab | null {
@@ -66,7 +67,10 @@ export class SingleTabStrategy implements TabStrategy {
     if (params.url) {
       await new Promise<void>((resolve) => setTimeout(resolve, 2000));
     }
-    return { success: true, data: { tabId: tab.id, url: params.url ?? "about:blank" } };
+    return {
+      success: true,
+      data: { tabId: tab.id, url: params.url ?? "about:blank" },
+    };
   }
 
   private executeSwitchTab(params: SwitchTabParams): ActionResult {
@@ -80,12 +84,16 @@ export class SingleTabStrategy implements TabStrategy {
       };
     }
     this.window.switchActiveTab(target.id);
-    return { success: true, data: { index: params.index, tabId: target.id, url: target.url } };
+    return {
+      success: true,
+      data: { index: params.index, tabId: target.id, url: target.url },
+    };
   }
 
   private executeCloseTab(params: CloseTabParams): ActionResult {
     const tabs = this.window.allTabs;
-    const target = params.index !== undefined ? tabs[params.index] : this.activeTab;
+    const target =
+      params.index !== undefined ? tabs[params.index] : this.activeTab;
     if (!target) {
       return {
         success: false,

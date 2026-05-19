@@ -1,55 +1,6 @@
 import type { AgentContext } from "../types/AgentTypes";
 
-export function buildReActPrompt(context: AgentContext): string {
-  const {
-    goal,
-    history,
-    currentUrl,
-    pageText,
-    profile,
-    loopMode,
-    stepBudget,
-    elapsedMs,
-    remainingMs,
-    interactiveElements,
-    tabs,
-  } = context;
-  const memory = (context as AgentContext & { memory?: string }).memory;
-
-  const recentHistory = history.slice(-8);
-
-  const historyText =
-    recentHistory.length > 0
-      ? recentHistory
-        .map((step, i) => {
-          const resultStr = step.result.success
-            ? `${compactValue(step.result.data, 140)}`
-            : `Error: ${step.result.error.substring(0, 140)}`;
-          return `${i + 1}. ${step.action.type}: ${resultStr}`;
-        })
-        .join("\n")
-      : "No previous actions.";
-
-  const pageContext = pageText
-    ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2000)}`
-    : "";
-
-  const elementsContext = interactiveElements
-    ? `\nInteractive elements (use these exact selectors — do not guess):\n${interactiveElements.substring(0, 1800)}`
-    : "";
-
-  const tabsContext =
-    tabs && tabs.length > 1
-      ? `\nOpen tabs:\n${tabs.map((t) => `[${t.index}]${t.isActive ? " ★" : ""} "${t.title}" ${t.url.substring(0, 80)}`).join("\n")}`
-      : "";
-
-  const memoryContext = memory ? `\nWorking memory:\n${memory}` : "";
-
-  const runContext = `\nRun mode: ${profile || "quick"}${loopMode ? " loop" : ""}
-Step budget: ${stepBudget || "unknown"}
-Elapsed: ${formatDuration(elapsedMs || 0)}
-Remaining: ${remainingMs === undefined ? "unknown" : formatDuration(remainingMs)}`;
-
+export function buildStaticSystemPrompt(): string {
   return `You are Blueberry AI, a browser automation agent. Use only browser-visible evidence, page text, screenshots, and working memory from this run.
 
 DEFAULT BEHAVIOR:
@@ -100,14 +51,22 @@ NAVIGATION:
 - Use back/forward instead of re-navigating to a URL when going back in history.
 - Use waitForSelector after navigations or clicks that trigger dynamic content loading.
 
+EXTRACTION EFFICIENCY:
+- When a task requires multiple pieces of data from the same page, capture everything in ONE extract action using a container or shared parent selector.
+- For list pages (search results, trending repos, feeds), extract the repeating container (e.g. "article", ".repo-list-item", "li.Box-row") to get all items in one call.
+- Do not make separate extract calls for each field (name, stars, description) — extract the full container text and parse it in the finish answer.
+- Only use multiple extracts when data lives in structurally unrelated parts of the page.
+
+STRUCTURED SCRAPING (extractSchema):
+- Use extractSchema when you need a list of items with multiple fields each (e.g. products with title+price+link, search results with title+url+snippet, table rows).
+- It is the right tool when extract would force you to parse messy concatenated text. extractSchema returns clean JSON: [{ title: "...", price: "...", link: "..." }, ...].
+- Cost: one extractSchema call uses ~1 extra LLM call to generate the scraper. Don't use it for a single value — use extract for that.
+- The "schema" is an object mapping field name → short description. Use "url" or "link" as the field hint when you want an absolute URL.
+- Always pass a "name" (the key that will hold the rows) and an optional "limit" (default 50, max 200).
+- A "containerHint" string is optional — describe the visual region in plain English if it helps disambiguate (e.g. "left sidebar product list" vs. "recommended for you carousel").
+
 If the user asks a simple greeting or casual question (like "whats up dawg?") you can answer directly, use finish with a friendly response.
 If the user asks for information that is not available on the current page, browse the web to find it.
-
-Task: ${goal}${runContext}
-URL: ${currentUrl || "unknown"}${tabsContext}${memoryContext}${elementsContext}${pageContext}
-
-Recent actions:
-${historyText}
 
 Available actions (ONE JSON object only, no markdown):
 - navigate: {"type":"navigate","params":{"url":"..."},"reasoning":"..."}
@@ -118,6 +77,7 @@ Available actions (ONE JSON object only, no markdown):
 - wait: {"type":"wait","params":{"duration":1000},"reasoning":"..."}
 - waitForSelector: {"type":"waitForSelector","params":{"selector":"...","timeout":5000,"visible":true},"reasoning":"..."}
 - extract: {"type":"extract","params":{"selector":"...","attribute":"text","name":"key","frame":"iframe#id"},"reasoning":"..."} (frame optional)
+- extractSchema: {"type":"extractSchema","params":{"name":"products","schema":{"title":"product title","price":"displayed price","link":"url"},"limit":50,"containerHint":"main grid","frame":"iframe#shop"},"reasoning":"..."} (multi-field list scraping; limit/containerHint/frame optional)
 - select: {"type":"select","params":{"selector":"select#id","value":"option-value","frame":"iframe#id"},"reasoning":"..."} (frame optional)
 - hover: {"type":"hover","params":{"selector":"nav.menu","x":0,"y":0},"reasoning":"..."} (selector or x/y)
 - back: {"type":"back","params":{},"reasoning":"..."}
@@ -136,9 +96,76 @@ CRITICAL RULES:
 5. For quick tasks, if stuck after 2 failed actions, use finish with your best answer. For loop/long tasks, recover, skip, scroll, wait, or use coordinates before finishing.
 6. Keep reasoning under 80 chars.
 7. finish MUST include a helpful answer based ONLY on what you observed in the browser.
-8. NEVER answer from memory — always browse first.
+8. NEVER answer from memory — always browse first.`;
+}
+
+export function buildDynamicPrompt(
+  context: AgentContext & { memory?: string },
+): string {
+  const {
+    goal,
+    history,
+    currentUrl,
+    pageText,
+    profile,
+    loopMode,
+    stepBudget,
+    elapsedMs,
+    remainingMs,
+    interactiveElements,
+    tabs,
+    memory,
+  } = context;
+
+  const recentHistory = history.slice(-8);
+
+  const historyText =
+    recentHistory.length > 0
+      ? recentHistory
+          .map((step, i) => {
+            const resultStr = step.result.success
+              ? `${compactValue(step.result.data, 140)}`
+              : `Error: ${step.result.error.substring(0, 140)}`;
+            return `${i + 1}. ${step.action.type}: ${resultStr}`;
+          })
+          .join("\n")
+      : "No previous actions.";
+
+  const pageContext = pageText
+    ? `\nRelevant page text:\n${selectRelevantPageText(pageText, goal, 2000)}`
+    : "";
+
+  const elementsContext = interactiveElements
+    ? `\nInteractive elements (use these exact selectors — do not guess):\n${interactiveElements.substring(0, 1800)}`
+    : "";
+
+  const tabsContext =
+    tabs && tabs.length > 1
+      ? `\nOpen tabs:\n${tabs.map((t) => `[${t.index}]${t.isActive ? " ★" : ""} "${t.title}" ${t.url.substring(0, 80)}`).join("\n")}`
+      : "";
+
+  const memoryContext = memory ? `\nWorking memory:\n${memory}` : "";
+
+  const runContext = `\nRun mode: ${profile || "quick"}${loopMode ? " loop" : ""}
+Step budget: ${stepBudget || "unknown"}
+Elapsed: ${formatDuration(elapsedMs || 0)}
+Remaining: ${remainingMs === undefined ? "unknown" : formatDuration(remainingMs)}`;
+
+  return `Task: ${goal}${runContext}
+URL: ${currentUrl || "unknown"}${tabsContext}${memoryContext}${elementsContext}${pageContext}
+
+Recent actions:
+${historyText}
 
 Respond with your next action:`;
+}
+
+export function buildReActPrompt(context: AgentContext): string {
+  return (
+    buildStaticSystemPrompt() +
+    "\n\n" +
+    buildDynamicPrompt(context as AgentContext & { memory?: string })
+  );
 }
 
 function formatDuration(ms: number): string {

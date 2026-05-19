@@ -1,4 +1,5 @@
 import type { Tab } from "../../Tab";
+import type { LLMClient } from "../../LLMClient";
 import type {
   AgentAction,
   ActionResult,
@@ -9,6 +10,7 @@ import type {
   ScrollParams,
   WaitParams,
   ExtractParams,
+  ExtractSchemaParams,
   SelectParams,
   HoverParams,
   WaitForSelectorParams,
@@ -23,7 +25,49 @@ interface JsResult {
   readonly data?: unknown;
 }
 
+interface PageStructureSample {
+  readonly url: string;
+  readonly title: string;
+  readonly html: string;
+}
+
+const EXTRACT_SCHEMA_SYSTEM_PROMPT = `You write robust DOM scrapers for a browser automation agent.
+Given a page HTML sample and a schema of fields, you output ONE self-invoking JavaScript expression that returns a JSON-serialisable array.
+
+Hard rules — violating any of these fails the run:
+1. Output ONLY a JS IIFE. No markdown, no commentary, no surrounding text. It MUST start with "(function(" and end with "})()".
+2. Use document.querySelectorAll to locate repeating items. Pick the tightest shared container selector you can justify from the HTML.
+3. Return a plain Array of plain Objects. Each object has EXACTLY the schema keys, all as strings.
+4. For schema fields described as 'url' or 'link', resolve relative hrefs to absolute via "new URL(href, document.baseURI).href". Never return a raw "/path".
+5. For text fields, use textContent.trim() and replace runs of whitespace with single spaces.
+6. Cap your loop at the requested limit. Skip rows where every field would be empty.
+7. NEVER call: fetch, XMLHttpRequest, eval, Function, window.open, location.assign, localStorage, navigator.sendBeacon. NEVER mutate the page.
+8. Wrap your top-level logic in try/catch and on failure return []. Do NOT throw.
+
+Skeleton:
+(function() {
+  try {
+    var items = document.querySelectorAll('SELECTOR');
+    var out = [];
+    for (var i = 0; i < items.length && out.length < LIMIT; i++) {
+      var el = items[i];
+      var row = {
+        field1: (el.querySelector('...') || {}).textContent ? el.querySelector('...').textContent.trim() : '',
+        // ...
+      };
+      out.push(row);
+    }
+    return out;
+  } catch (e) { return []; }
+})()`;
+
 export class ActionExecutor {
+  private readonly llmClient: LLMClient;
+
+  constructor(llmClient: LLMClient) {
+    this.llmClient = llmClient;
+  }
+
   async execute(tab: Tab | null, action: AgentAction): Promise<ActionResult> {
     if (!tab) {
       return {
@@ -36,7 +80,10 @@ export class ActionExecutor {
     try {
       switch (action.type) {
         case "navigate":
-          return await this.executeNavigate(tab, action.params as { url: string });
+          return await this.executeNavigate(
+            tab,
+            action.params as { url: string },
+          );
         case "click":
           return await this.executeClick(tab, action.params as ClickParams);
         case "type":
@@ -49,6 +96,11 @@ export class ActionExecutor {
           return await this.executeWait(action.params as WaitParams);
         case "extract":
           return await this.executeExtract(tab, action.params as ExtractParams);
+        case "extractSchema":
+          return await this.executeExtractSchema(
+            tab,
+            action.params as ExtractSchemaParams,
+          );
         case "screenshot": {
           const image = await tab.screenshot({ maxWidth: 800 });
           return { success: true, data: { screenshot: image.toDataURL() } };
@@ -70,7 +122,10 @@ export class ActionExecutor {
         case "forward":
           return await this.executeForward(tab);
         case "waitForSelector":
-          return await this.executeWaitForSelector(tab, action.params as WaitForSelectorParams);
+          return await this.executeWaitForSelector(
+            tab,
+            action.params as WaitForSelectorParams,
+          );
         default:
           return {
             success: false,
@@ -107,7 +162,10 @@ export class ActionExecutor {
       try {
         await this.nativeClick(tab, params.x, params.y);
         await this.sleep(300);
-        return { success: true, data: { method: "native", x: params.x, y: params.y } };
+        return {
+          success: true,
+          data: { method: "native", x: params.x, y: params.y },
+        };
       } catch {
         console.log("[ActionExecutor] Native click failed, trying JS fallback");
       }
@@ -148,18 +206,32 @@ export class ActionExecutor {
       if (!params.frame && result?.x && result?.y) {
         await this.nativeClick(tab, result.x, result.y);
         await this.sleep(500);
-        return { success: true, data: { method: "native", x: result.x, y: result.y } };
+        return {
+          success: true,
+          data: { method: "native", x: result.x, y: result.y },
+        };
       }
 
-      return { success: false, error: result?.error || "Click failed", recoverable: true };
+      return {
+        success: false,
+        error: result?.error || "Click failed",
+        recoverable: true,
+      };
     } catch (error) {
       if (!params.frame && params.x !== undefined && params.y !== undefined) {
         try {
           await this.nativeClick(tab, params.x, params.y);
           await this.sleep(500);
-          return { success: true, data: { method: "native_fallback", x: params.x, y: params.y } };
+          return {
+            success: true,
+            data: { method: "native_fallback", x: params.x, y: params.y },
+          };
         } catch {
-          return { success: false, error: "Native click also failed", recoverable: false };
+          return {
+            success: false,
+            error: "Native click also failed",
+            recoverable: false,
+          };
         }
       }
       const msg = error instanceof Error ? error.message : "Click failed";
@@ -186,7 +258,10 @@ export class ActionExecutor {
       await this.sleep(120);
       await this.nativeType(tab, params.text);
       await this.sleep(300);
-      return { success: true, data: { method: "native", x: params.x, y: params.y } };
+      return {
+        success: true,
+        data: { method: "native", x: params.x, y: params.y },
+      };
     }
 
     if (!selector) {
@@ -256,11 +331,12 @@ export class ActionExecutor {
     }
   }
 
-  private async executeKey(
-    tab: Tab,
-    params: KeyParams,
-  ): Promise<ActionResult> {
-    await this.nativeKey(tab, params.key, (params.modifiers as Array<"control" | "shift" | "alt" | "meta">) || []);
+  private async executeKey(tab: Tab, params: KeyParams): Promise<ActionResult> {
+    await this.nativeKey(
+      tab,
+      params.key,
+      (params.modifiers as Array<"control" | "shift" | "alt" | "meta">) || [],
+    );
     await this.sleep(250);
     return {
       success: true,
@@ -356,19 +432,31 @@ export class ActionExecutor {
         })()
       `;
       try {
-        const result = (await tab.runJs(code)) as { x?: number; y?: number; error?: string };
+        const result = (await tab.runJs(code)) as {
+          x?: number;
+          y?: number;
+          error?: string;
+        };
         if (result?.error) {
           return { success: false, error: result.error, recoverable: true };
         }
         targetX = result.x;
         targetY = result.y;
       } catch {
-        return { success: false, error: "Could not locate element for hover", recoverable: true };
+        return {
+          success: false,
+          error: "Could not locate element for hover",
+          recoverable: true,
+        };
       }
     }
 
     if (targetX === undefined || targetY === undefined) {
-      return { success: false, error: "Hover needs a selector or x,y coordinates", recoverable: true };
+      return {
+        success: false,
+        error: "Hover needs a selector or x,y coordinates",
+        recoverable: true,
+      };
     }
 
     // sendInputEvent mouseMove triggers Chromium's internal hover state (CSS :hover)
@@ -409,7 +497,10 @@ export class ActionExecutor {
         `;
         const found = (await tab.runJs(code)) as boolean;
         if (found) {
-          return { success: true, data: { selector: params.selector, waitedMs: Date.now() - start } };
+          return {
+            success: true,
+            data: { selector: params.selector, waitedMs: Date.now() - start },
+          };
         }
       } catch {
         // page may be mid-navigation — keep polling
@@ -489,6 +580,280 @@ export class ActionExecutor {
     }
   }
 
+  private async executeExtractSchema(
+    tab: Tab,
+    params: ExtractSchemaParams,
+  ): Promise<ActionResult> {
+    const fields = Object.keys(params.schema);
+    if (fields.length === 0) {
+      return {
+        success: false,
+        error: "extractSchema requires a non-empty schema",
+        recoverable: false,
+      };
+    }
+
+    const limit = Math.max(1, Math.min(params.limit ?? 50, 200));
+
+    let pageStructure: PageStructureSample;
+    try {
+      pageStructure = await this.samplePageStructure(tab, params.frame);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Page sample failed";
+      const isCSP =
+        msg.includes("Script failed to execute") ||
+        msg.includes("CSP") ||
+        msg.includes("Content Security Policy");
+      return {
+        success: false,
+        error: isCSP
+          ? "CSP_BLOCKED: Cannot sample page structure for extractSchema."
+          : msg,
+        recoverable: !isCSP,
+      };
+    }
+
+    const interactiveElements = await tab
+      .getInteractiveElements()
+      .catch(() => null);
+
+    const prompt = this.buildExtractSchemaPrompt({
+      schema: params.schema,
+      limit,
+      containerHint: params.containerHint,
+      frame: params.frame,
+      pageStructure,
+      interactiveElements,
+    });
+
+    const llmResponse = await this.llmClient.generateText(
+      prompt,
+      0.1,
+      EXTRACT_SCHEMA_SYSTEM_PROMPT,
+    );
+    if (!llmResponse) {
+      return {
+        success: false,
+        error: "LLM did not return an extraction script",
+        recoverable: true,
+      };
+    }
+
+    const script = this.extractIifeFromLlmResponse(llmResponse);
+    if (!script) {
+      return {
+        success: false,
+        error: "Could not parse a JS IIFE from LLM response",
+        recoverable: true,
+      };
+    }
+
+    const wrappedScript = this.wrapSchemaScript(
+      script,
+      params.frame,
+      fields,
+      limit,
+    );
+
+    let raw: unknown;
+    try {
+      raw = await tab.runJs(wrappedScript);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Script eval failed";
+      const isCSP =
+        msg.includes("Script failed to execute") ||
+        msg.includes("CSP") ||
+        msg.includes("Content Security Policy");
+      return {
+        success: false,
+        error: isCSP
+          ? "CSP_BLOCKED: Generated scraper could not run on this page."
+          : msg,
+        recoverable: !isCSP,
+      };
+    }
+
+    if (this.isJsError(raw)) {
+      return { success: false, error: raw.error, recoverable: true };
+    }
+
+    const rows = this.normalizeExtractionRows(raw, fields, limit);
+    if (rows.length === 0) {
+      return {
+        success: false,
+        error: "Generated scraper returned zero matching rows",
+        recoverable: true,
+      };
+    }
+
+    return {
+      success: true,
+      data: { [params.name]: rows },
+    };
+  }
+
+  private async samplePageStructure(
+    tab: Tab,
+    frame: string | undefined,
+  ): Promise<PageStructureSample> {
+    const frameSetup = this.resolveDocJs(frame);
+    const code = `
+      (function() {
+        try {
+          ${frameSetup}
+          var win = __doc.defaultView || window;
+          var root = __doc.body || __doc.documentElement;
+          if (!root) return { error: "No document body" };
+          var html = root.outerHTML || '';
+          html = html.replace(/<script[\\s\\S]*?<\\/script>/gi, '');
+          html = html.replace(/<style[\\s\\S]*?<\\/style>/gi, '');
+          html = html.replace(/<noscript[\\s\\S]*?<\\/noscript>/gi, '');
+          html = html.replace(/<!--([\\s\\S]*?)-->/g, '');
+          html = html.replace(/\\s+/g, ' ');
+          return {
+            url: (win.location && win.location.href) || '',
+            title: __doc.title || '',
+            html: html.substring(0, 8000)
+          };
+        } catch (e) {
+          return { error: e && e.message ? e.message : 'Sample failed' };
+        }
+      })()
+    `;
+    const result = (await tab.runJs(code)) as
+      | { readonly error: string }
+      | PageStructureSample;
+    if ("error" in result) throw new Error(result.error);
+    return result;
+  }
+
+  private buildExtractSchemaPrompt(input: {
+    readonly schema: Readonly<Record<string, string>>;
+    readonly limit: number;
+    readonly containerHint?: string;
+    readonly frame?: string;
+    readonly pageStructure: PageStructureSample;
+    readonly interactiveElements: string | null;
+  }): string {
+    const schemaLines = Object.entries(input.schema)
+      .map(([field, hint]) => `- ${field}: ${hint}`)
+      .join("\n");
+
+    const fieldNames = Object.keys(input.schema).join(", ");
+
+    const elementsBlock = input.interactiveElements
+      ? `\nInteractive elements on page (compact list, use as hints):\n${input.interactiveElements.substring(0, 1600)}\n`
+      : "";
+
+    const frameNote = input.frame
+      ? `\nNote: targeting iframe selector ${input.frame}. The page sample below is from inside that frame.`
+      : "";
+
+    return `Page URL: ${input.pageStructure.url}
+Page title: ${input.pageStructure.title}${frameNote}
+
+Schema (extract these fields per item):
+${schemaLines}
+
+Container hint (free-text guidance from agent): ${input.containerHint || "(none — figure out the repeating container yourself)"}
+
+Maximum items: ${input.limit}
+Output field names: [${fieldNames}]
+${elementsBlock}
+HTML sample (truncated, scripts/styles stripped):
+${input.pageStructure.html}
+
+Write the JS IIFE now. Return ONLY the IIFE expression — no markdown fences, no commentary, no \`return\` statement outside the IIFE.`;
+  }
+
+  private extractIifeFromLlmResponse(text: string): string | null {
+    let cleaned = text.trim();
+    cleaned = cleaned.replace(/^```(?:javascript|js)?\s*/i, "");
+    cleaned = cleaned.replace(/```\s*$/i, "");
+    cleaned = cleaned.trim();
+    if (!cleaned.startsWith("(") || !cleaned.endsWith(")")) {
+      const match = cleaned.match(
+        /\(function\s*\([^)]*\)\s*\{[\s\S]*\}\s*\)\s*\(\s*\)/,
+      );
+      if (!match) return null;
+      cleaned = match[0];
+    }
+    return cleaned;
+  }
+
+  private wrapSchemaScript(
+    script: string,
+    frame: string | undefined,
+    fields: readonly string[],
+    limit: number,
+  ): string {
+    const frameSetup = this.resolveDocJs(frame);
+    return `
+      (function() {
+        try {
+          ${frameSetup}
+          var __limit = ${limit};
+          var __fields = ${JSON.stringify(fields)};
+          var __result = (${script});
+          if (!Array.isArray(__result)) return { error: "Scraper did not return an array" };
+          var __rows = __result.slice(0, __limit).map(function(row) {
+            var clean = {};
+            if (row && typeof row === 'object') {
+              for (var i = 0; i < __fields.length; i++) {
+                var key = __fields[i];
+                var val = row[key];
+                if (val === undefined || val === null) { clean[key] = ''; continue; }
+                if (typeof val === 'string') { clean[key] = val.trim().substring(0, 1000); continue; }
+                if (typeof val === 'number' || typeof val === 'boolean') { clean[key] = String(val); continue; }
+                try { clean[key] = String(val).substring(0, 1000); } catch (e) { clean[key] = ''; }
+              }
+            }
+            return clean;
+          });
+          return __rows;
+        } catch (e) {
+          return { error: e && e.message ? 'Generated scraper threw: ' + e.message : 'Generated scraper failed' };
+        }
+      })()
+    `;
+  }
+
+  private isJsError(value: unknown): value is { readonly error: string } {
+    return (
+      typeof value === "object" &&
+      value !== null &&
+      "error" in value &&
+      typeof (value as { error: unknown }).error === "string"
+    );
+  }
+
+  private normalizeExtractionRows(
+    raw: unknown,
+    fields: readonly string[],
+    limit: number,
+  ): ReadonlyArray<Record<string, string>> {
+    if (!Array.isArray(raw)) return [];
+    const out: Array<Record<string, string>> = [];
+    for (const item of raw.slice(0, limit)) {
+      if (!item || typeof item !== "object") continue;
+      const row: Record<string, string> = {};
+      let hasAny = false;
+      for (const field of fields) {
+        const value = (item as Record<string, unknown>)[field];
+        const str =
+          typeof value === "string"
+            ? value.trim()
+            : value === undefined || value === null
+              ? ""
+              : String(value);
+        row[field] = str;
+        if (str.length > 0) hasAny = true;
+      }
+      if (hasAny) out.push(row);
+    }
+    return out;
+  }
+
   private isRecoverable(_type: ActionType, error: string): boolean {
     const nonRecoverable = ["navigation", "destroyed", "no active tab"];
     return !nonRecoverable.some((kw) => error.toLowerCase().includes(kw));
@@ -544,10 +909,14 @@ export class ActionExecutor {
 
     const normalizedModifiers = modifiers.map((modifier) => {
       switch (modifier) {
-        case "control": return "control";
-        case "shift": return "shift";
-        case "alt": return "alt";
-        case "meta": return "meta";
+        case "control":
+          return "control";
+        case "shift":
+          return "shift";
+        case "alt":
+          return "alt";
+        case "meta":
+          return "meta";
       }
     });
 

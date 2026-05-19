@@ -448,6 +448,7 @@ export class LLMClient {
   async generateText(
     prompt: string,
     temperature?: number,
+    system?: string,
   ): Promise<string | null> {
     if (!this.model) {
       await this.getModelOptions();
@@ -457,12 +458,16 @@ export class LLMClient {
         "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
       );
     try {
+      const resolvedSystem = system ?? "You are a browser automation agent. Respond with JSON only.";
       const result = await generateAIText({
         model: this.model,
         prompt,
-        system: "You are a browser automation agent. Respond with JSON only.",
+        system: resolvedSystem,
         maxRetries: 2,
         ...(temperature !== undefined ? { temperature } : {}),
+        ...(this.provider === "anthropic" && system
+          ? { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" as const } } } }
+          : {}),
       });
       this.recordUsage(result.usage.inputTokens ?? 0, result.usage.outputTokens ?? 0);
       return result.text;
@@ -476,6 +481,7 @@ export class LLMClient {
     prompt: string,
     imageBase64: string,
     temperature?: number,
+    system?: string,
   ): Promise<string | null> {
     if (!this.model) {
       await this.getModelOptions();
@@ -485,6 +491,7 @@ export class LLMClient {
         "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
       );
     try {
+      const resolvedSystem = system ?? "You are a browser automation agent. Respond with JSON only.";
       const messages = [
         {
           role: "user",
@@ -497,9 +504,13 @@ export class LLMClient {
 
       const result = await generateAIText({
         model: this.model,
+        system: resolvedSystem,
         messages,
         maxRetries: 2,
         ...(temperature !== undefined ? { temperature } : {}),
+        ...(this.provider === "anthropic" && system
+          ? { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" as const } } } }
+          : {}),
       });
       this.recordUsage(result.usage.inputTokens ?? 0, result.usage.outputTokens ?? 0);
       return result.text;
@@ -510,7 +521,7 @@ export class LLMClient {
       }
 
       // Fallback to text-only when only the vision request failed.
-      return this.generateText(prompt, temperature);
+      return this.generateText(prompt, temperature, system);
     }
   }
 

@@ -57,12 +57,12 @@ export class AgentOrchestrator {
     this.sessions.set(sessionId, session);
     this.activeSessionId = sessionId;
 
-    // Create strategy
-    const strategy = new SingleTabStrategy(this.window);
-
     // Create LLM client
     const sidebar = this.window.sidebar;
     const llmClient = sidebar.client;
+
+    // Create strategy (uses the LLM client for smart actions like extractSchema)
+    const strategy = new SingleTabStrategy(this.window, llmClient);
 
     // Create runner
     const runner = new AgentRunner(config, strategy, llmClient);

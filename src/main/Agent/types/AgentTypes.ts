@@ -6,6 +6,7 @@ export type ActionType =
   | "scroll"
   | "wait"
   | "extract"
+  | "extractSchema"
   | "screenshot"
   | "finish"
   | "select"
@@ -52,6 +53,14 @@ export interface ExtractParams {
   readonly selector: string;
   readonly attribute?: "text" | "html" | "value";
   readonly name: string;
+  readonly frame?: string;
+}
+
+export interface ExtractSchemaParams {
+  readonly name: string;
+  readonly schema: Readonly<Record<string, string>>;
+  readonly limit?: number;
+  readonly containerHint?: string;
   readonly frame?: string;
 }
 
@@ -113,6 +122,7 @@ export type ActionParamsMap = {
   scroll: ScrollParams;
   wait: WaitParams;
   extract: ExtractParams;
+  extractSchema: ExtractSchemaParams;
   screenshot: ScreenshotParams;
   finish: FinishParams;
   select: SelectParams;

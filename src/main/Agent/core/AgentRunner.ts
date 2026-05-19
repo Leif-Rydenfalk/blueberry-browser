@@ -7,7 +7,20 @@ import type {
   AgentStreamUpdate,
   TabStrategy,
 } from "../types/AgentTypes";
-import { buildReActPrompt } from "../prompts/systemPrompts";
+import {
+  buildStaticSystemPrompt,
+  buildDynamicPrompt,
+} from "../prompts/systemPrompts";
+
+const SKIP_SCREENSHOT_ACTIONS = new Set([
+  "extract",
+  "extractSchema",
+  "wait",
+  "waitForSelector",
+  "select",
+  "finish",
+  "screenshot",
+]);
 
 export class AgentRunner {
   private config: AgentConfig;
@@ -115,8 +128,13 @@ export class AgentRunner {
             : undefined,
         };
 
-        const basePrompt = buildReActPrompt(context);
-        const responseText = await this.llmClient.generateText(basePrompt);
+        const staticSystem = buildStaticSystemPrompt();
+        const dynamicPrompt = buildDynamicPrompt(context);
+        const responseText = await this.llmClient.generateText(
+          dynamicPrompt,
+          undefined,
+          staticSystem,
+        );
 
         if (!responseText) {
           throw new Error("Failed to get response from LLM");
@@ -136,8 +154,10 @@ export class AgentRunner {
           const screenshotData = await this.strategy.captureScreenshot();
           if (screenshotData) {
             const visionResponse = await this.llmClient.generateVisionText(
-              basePrompt,
+              dynamicPrompt,
               screenshotData,
+              undefined,
+              staticSystem,
             );
             if (visionResponse) {
               const nextAction = this.parseActionFromResponse(visionResponse);
@@ -174,7 +194,9 @@ export class AgentRunner {
         });
 
         const result = await this.strategy.executeAction(action);
-        const afterScreenshot = await this.strategy.captureScreenshot();
+        const afterScreenshot = SKIP_SCREENSHOT_ACTIONS.has(action.type)
+          ? null
+          : await this.strategy.captureScreenshot();
         this.updateWorkingMemory(action, result);
 
         const step: AgentStep = {
@@ -351,6 +373,17 @@ export class AgentRunner {
 
     if (action.type === "extract") {
       this.remember(`Extracted ${this.compact(result.data, 260)}`);
+      return;
+    }
+
+    if (action.type === "extractSchema") {
+      const params = action.params as { name?: string };
+      const dataObj = result.data as Record<string, unknown> | null;
+      const rows = params.name ? dataObj?.[params.name] : null;
+      const count = Array.isArray(rows) ? rows.length : "?";
+      this.remember(
+        `Schema-extracted ${count} rows: ${this.compact(result.data, 200)}`,
+      );
       return;
     }
 
