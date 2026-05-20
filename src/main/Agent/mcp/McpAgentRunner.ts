@@ -373,7 +373,8 @@ export class McpAgentRunner {
             text: { type: "string", description: "Text to type" },
             clearFirst: {
               type: "boolean",
-              description: "Clear existing value before typing (default false)",
+              description:
+                "Clear the field's existing content before typing. DEFAULT TRUE — typing replaces whatever's in the field (an autosaved draft, a placeholder, a prior attempt). Pass false ONLY when you explicitly want to APPEND to existing content (e.g. adding to a long doc, building up a message across multiple type calls).",
             },
             x: {
               type: "number",

@@ -329,7 +329,7 @@ export class ActionExecutor {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
         el.focus();
         const text = ${JSON.stringify(params.text)};
-        const clearFirst = ${params.clearFirst ?? false};
+        const clearFirst = ${params.clearFirst ?? true};
 
         if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
           if (clearFirst) {
