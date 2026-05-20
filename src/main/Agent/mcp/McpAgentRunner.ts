@@ -17,7 +17,7 @@
  */
 
 import { v4 as uuidv4 } from "uuid";
-import { generateText, jsonSchema, stepCountIs } from "ai";
+import { generateText, hasToolCall, jsonSchema, stepCountIs } from "ai";
 import type { LLMClient } from "../../LLMClient";
 import type {
   AgentConfig,
@@ -230,7 +230,11 @@ export class McpAgentRunner {
       await generateText({
         model,
         tools: this.buildTools(),
-        stopWhen: stepCountIs(this.config.maxSteps),
+        // hasToolCall("finish") is the load-bearing stop — abort() from inside
+        // the finish tool's execute() doesn't reliably terminate the SDK's
+        // multi-step loop, so the model would keep emitting tool calls and the
+        // MCP delegate_task promise would never resolve.
+        stopWhen: [stepCountIs(this.config.maxSteps), hasToolCall("finish")],
         system,
         prompt: initialPrompt,
         abortSignal: this.abortController.signal,
