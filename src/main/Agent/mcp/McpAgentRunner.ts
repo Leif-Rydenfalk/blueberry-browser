@@ -760,13 +760,16 @@ export class McpAgentRunner {
           const bucket = this.collected.get(params.name);
           const bucketTotal = bucket?.rows.length ?? 0;
 
+          const message = bucketTotal > 0
+            ? `Bucket "${params.name}" now has ${bucketTotal} unique rows (fields: ${[...bucket!.fields].join(", ")}). ✓ Stage complete — continue to the next stage.`
+            : `⚠ ZERO ROWS collected for "${params.name}". This stage is NOT complete. DO NOT proceed to the next pipeline stage. You must retry:\n  1. Call screenshot to see what is currently on the page\n  2. If you see a sign-in / login page: call waitForApproval("Please sign in to continue")\n  3. Wait 2s then retry extractSchema with a looser schema or different containerHint\n  4. Try scroll(down) to load content then retry\n  Only skip this stage after 3+ failed attempts — and note the failure explicitly in your final answer.`;
+
           return {
             ...result,
             bucketTotal,
             bucketName: params.name,
-            message: bucket
-              ? `Bucket "${params.name}" now has ${bucketTotal} unique rows (fields: ${[...bucket.fields].join(", ")}). Call extractSchema again with the same name after paginating to add more rows.`
-              : "No rows collected.",
+            stageComplete: bucketTotal > 0,
+            message,
           };
         },
       },
@@ -1595,11 +1598,26 @@ STEP 2 — EXTRACT (not just navigate): For EACH app:
   b. if sign-in wall: waitForApproval("Please sign in to [App] and click Approve to continue")
   c. wait for page to load (waitForSelector or screenshot to confirm)
   d. extractSchema with a descriptive bucket name (e.g. "gmail_unreads", "slack_unreads", "calendar_today")
-  e. Confirm rows collected in the tool result — only then mark this app DONE
+  e. CHECK the tool result — look for "stageComplete: true" and bucketTotal > 0
+     ✓ bucketTotal > 0  → stage done, move to next app
+     ✗ bucketTotal = 0  → STOP. Apply ZERO-ROW RULE. Do NOT move on.
 
-STEP 3 — COUNT: After each app, check: how many apps remain? If > 0, continue. Do NOT call finish.
+STEP 3 — COUNT: After each successful stage, check: how many apps remain? If > 0, continue. Do NOT call finish.
 
 STEP 4 — SYNTHESIZE: Only after ALL apps are done, call finish with sections for each source and a priority action list.
+
+╔══════════════════════════════════════════════════════════════════╗
+║  ZERO-ROW RULE — NEVER SILENTLY SKIP A STAGE                    ║
+║  If extractSchema returns bucketTotal=0 or "ZERO ROWS":          ║
+║  1. screenshot → see what is on the page right now               ║
+║  2. If login/sign-in wall: waitForApproval then navigate back    ║
+║  3. wait(2000) then retry extractSchema (same name, looser hints)║
+║  4. scroll(down) to trigger lazy-loaded content, then retry      ║
+║  5. Only after 3 failed attempts: note the failure in answer     ║
+║     e.g. "Slack: could not retrieve data after 3 attempts —      ║
+║     please check manually" — then continue to next stage         ║
+║  NEVER call finish with fabricated data for a failed stage.      ║
+╚══════════════════════════════════════════════════════════════════╝
 
 ────────────────────────────────────────────────────────────
 PIPELINE EXAMPLE 1 — Daily Brief (Gmail + Slack + Calendar)
@@ -1610,19 +1628,26 @@ Pipeline stages: [Gmail] → [Slack] → [Calendar] → [Synthesize]
 Correct execution:
 1. navigate(https://mail.google.com) → handle sign-in if needed
 2. extractSchema(name="gmail_unreads", schema={sender:"sender name", subject:"email subject", snippet:"first line of body", time:"received time", label:"Gmail label"})
-   → "gmail_unreads" bucket now has N rows. Gmail ✓
-3. navigate(https://app.slack.com) → handle sign-in if needed
+   → result shows bucketTotal=48, stageComplete=true. Gmail ✓
+3. navigate(https://app.slack.com) → handle sign-in if needed (waitForApproval if login wall)
 4. extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"who sent it", preview:"message preview", time:"when sent", type:"channel/DM/mention"})
-   → "slack_unreads" bucket now has N rows. Slack ✓. Calendar still pending — DO NOT call finish.
+   → IF bucketTotal=0: apply ZERO-ROW RULE
+     a. screenshot → see current page state
+     b. if sign-in redirect: waitForApproval, then navigate back and retry
+     c. wait(2000) → retry extractSchema with containerHint:"sidebar unread items"
+     d. scroll(down) → retry again if still 0
+     → After retry bucketTotal=N. Slack ✓. Calendar still pending — DO NOT call finish.
 5. navigate(https://calendar.google.com) → handle sign-in if needed
 6. extractSchema(name="calendar_today", schema={time:"start time", title:"event title", attendees:"comma-separated attendees", location:"video link or room", type:"internal/external"})
-   → "calendar_today" bucket now has N rows. All 3 apps done.
-7. finish(answer="# What Needs Your Attention Today\n\n## Gmail (N unreads)\n- URGENT: ...\n- ...\n\n## Slack (N unreads)\n- ...\n\n## Calendar (N events)\n- ...\n\n## Priority Actions\n1. ...\n2. ...")
+   → bucketTotal=N, stageComplete=true. All 3 apps done.
+7. finish(answer="# What Needs Your Attention Today\n\n## Gmail (48 unreads)\n- URGENT: [actual subject from gmail_unreads bucket]\n- ...\n\n## Slack (N unreads)\n- [actual channel/message from slack_unreads bucket]\n\n## Calendar (N events)\n- [actual event from calendar_today bucket]\n\n## Priority Actions\n1. [derived from actual data]")
 
 WRONG — never do this:
-× navigate(gmail) → navigate(slack) → finish("Reached step budget")  ← NEVER finish mid-pipeline
-× finish after 2/3 apps because "probably covered everything"          ← NEVER skip sources
-× return a placeholder answer without actual extracted data             ← NEVER invent data
+× navigate(gmail) → navigate(slack) → finish("Reached step budget")     ← NEVER finish mid-pipeline
+× extractSchema returns 0 rows → move on anyway                          ← NEVER skip zero-row stage
+× finish after 2/3 apps because "probably covered everything"            ← NEVER skip sources
+× write "Please check Slack manually" instead of retrying                ← NEVER fabricate or give up early
+× return invented data for a stage that failed                           ← NEVER make up counts or messages
 
 ────────────────────────────────────────────────────────────
 PIPELINE EXAMPLE 2 — Meeting Prep (Calendar + LinkedIn + Salesforce + Notion)
@@ -1769,7 +1794,7 @@ DO NOT call finish after completing only some stages. Work through every stage i
     if (lower.includes("slack")) {
       stages.push({
         label: "Slack",
-        instruction: 'navigate to https://app.slack.com, handle sign-in if needed, then extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"message sender", preview:"message preview", time:"timestamp", type:"channel/DM/mention"}) to collect unreads',
+        instruction: 'navigate to https://app.slack.com, handle sign-in if needed (waitForApproval if redirected to login). Then extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"message sender", preview:"message preview", time:"timestamp", type:"channel/DM/mention"}). IF bucketTotal=0: screenshot → check for login wall → wait(2000) → retry extractSchema with containerHint:"sidebar unread channels". Repeat until rows > 0 or 3 attempts exhausted.',
       });
     }
 
@@ -1778,7 +1803,7 @@ DO NOT call finish after completing only some stages. Work through every stage i
       const bucketName = isTomorrow ? "calendar_tomorrow" : "calendar_today";
       stages.push({
         label: "Google Calendar",
-        instruction: `navigate to https://calendar.google.com, handle sign-in if needed${isTomorrow ? ", navigate to tomorrow's date" : ""}, then extractSchema(name="${bucketName}", schema={time:"event start time", title:"event title", attendees:"all attendees", location:"room or video link", type:"internal/external"}) to collect events`,
+        instruction: `navigate to https://calendar.google.com, handle sign-in if needed${isTomorrow ? ", navigate to tomorrow's date" : ""}. Then extractSchema(name="${bucketName}", schema={time:"event start time", title:"event title", attendees:"all attendees comma-separated", location:"room or video link", type:"internal/external"}). NOTE: even if there are 0 events today, extractSchema should return at least 1 row if calendar loaded — if it returns 0 rows: screenshot to confirm calendar is visible, then retry with containerHint:"event chips on the calendar grid". After extractSchema succeeds (or 3 attempts), proceed to next stage.`,
       });
     }
 
