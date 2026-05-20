@@ -85,8 +85,8 @@ export const TabBar: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs */}
-      <div className="flex-1 overflow-x-auto flex no-scrollbar">
+      {/* Tabs + add-tab button as one scrollable strip */}
+      <div className="flex-1 min-w-0 overflow-x-auto flex items-center [&::-webkit-scrollbar]:hidden">
         {tabs.map((tab) => (
           <TabItem
             key={tab.id}
@@ -98,12 +98,15 @@ export const TabBar: React.FC = () => {
             onActivate={() => switchTab(tab.id)}
           />
         ))}
+
+        {/* + button sits immediately after the last tab */}
+        <div className="flex-shrink-0 py-1 pl-0.5 pr-1 app-region-no-drag">
+          <TabBarButton Icon={Plus} onClick={handleCreateTab} />
+        </div>
       </div>
 
-      {/* Add Tab Button */}
-      <div className="pl-1 pr-2">
-        <TabBarButton Icon={Plus} onClick={handleCreateTab} />
-      </div>
+      {/* Reserve space for OS window controls on non-macOS (titleBarOverlay) */}
+      {!isMac && <div className="flex-shrink-0 w-[148px]" />}
     </div>
   );
 };
