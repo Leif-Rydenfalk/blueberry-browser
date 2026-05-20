@@ -125,7 +125,7 @@ export class SettingsStore {
   // ---- Agent preferences ----
 
   getAgentPreferences(): AgentPreferences {
-    return this.data.agentPreferences ?? DEFAULT_AGENT_PREFERENCES;
+    return { ...DEFAULT_AGENT_PREFERENCES, ...(this.data.agentPreferences ?? {}) };
   }
 
   setAgentPreferences(prefs: Partial<AgentPreferences>): AgentPreferences {
@@ -161,7 +161,7 @@ export class SettingsStore {
       version: SETTINGS_VERSION,
       apiKeys: input.apiKeys ?? {},
       lastModel: input.lastModel ?? null,
-      agentPreferences: input.agentPreferences ?? DEFAULT_AGENT_PREFERENCES,
+      agentPreferences: { ...DEFAULT_AGENT_PREFERENCES, ...(input.agentPreferences ?? {}) },
     };
   }
 

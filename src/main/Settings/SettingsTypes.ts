@@ -31,10 +31,14 @@ export interface StoredModelSelection {
 
 export interface AgentPreferences {
   readonly alwaysAllowScripts: boolean;
+  // When true, the runner auto-approves every destructive action and script
+  // review without prompting. Default ON so the agent runs uninterrupted.
+  readonly autoApprove: boolean;
 }
 
 export const DEFAULT_AGENT_PREFERENCES: AgentPreferences = {
-  alwaysAllowScripts: false,
+  alwaysAllowScripts: true,
+  autoApprove: true,
 };
 
 export interface PersistedSettings {

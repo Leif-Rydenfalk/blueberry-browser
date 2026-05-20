@@ -43,6 +43,7 @@ interface AgentSessionRequest {
 
 interface AgentPreferences {
   readonly alwaysAllowScripts: boolean;
+  readonly autoApprove: boolean;
 }
 
 interface AgentStreamUpdate {

@@ -21,6 +21,8 @@ import {
   Flag,
   Code,
   KeyRound,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
@@ -252,7 +254,25 @@ export const AgentPanel: React.FC = () => {
   const [modelError, setModelError] = useState<string | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    window.sidebarAPI
+      .getAgentPreferences()
+      .then((p) => setAutoApprove(p.autoApprove))
+      .catch(() => {});
+  }, []);
+
+  const toggleAutoApprove = async () => {
+    const next = !autoApprove;
+    setAutoApprove(next);
+    try {
+      await window.sidebarAPI.setAgentPreferences({ autoApprove: next });
+    } catch {
+      setAutoApprove(!next);
+    }
+  };
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -427,6 +447,28 @@ export const AgentPanel: React.FC = () => {
               ))}
             </select>
           </div>
+          <button
+            type="button"
+            onClick={toggleAutoApprove}
+            title={
+              autoApprove
+                ? "Auto-approve is ON — click to require confirmation for destructive actions"
+                : "Auto-approve is OFF — click to skip all confirmation prompts"
+            }
+            className={cn(
+              "flex items-center gap-1 h-7 px-2 rounded-lg shrink-0 text-[10px] font-medium border transition-colors",
+              autoApprove
+                ? "bg-green-500/10 text-green-600 dark:text-green-400 border-green-500/20 hover:bg-green-500/20"
+                : "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20 hover:bg-amber-500/20",
+            )}
+          >
+            {autoApprove ? (
+              <ShieldCheck className="size-3" />
+            ) : (
+              <ShieldAlert className="size-3" />
+            )}
+            {autoApprove ? "Auto" : "Ask"}
+          </button>
           <button
             type="button"
             onClick={() => setApiKeyModalOpen(true)}

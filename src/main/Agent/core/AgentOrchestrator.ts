@@ -71,7 +71,7 @@ export class AgentOrchestrator {
     const goal = this.enrichGoalWithAttachments(request.goal, request.attachments);
     const profile = this.classifyTask(goal);
     const longRunning = profile === "repetitive" || profile === "communication";
-    const alwaysAllowScripts = this.window.sidebar.settings.getAgentPreferences().alwaysAllowScripts;
+    const prefs = this.window.sidebar.settings.getAgentPreferences();
 
     const config: AgentConfig = {
       maxSteps: this.getMaxSteps(profile, goal),
@@ -83,7 +83,8 @@ export class AgentOrchestrator {
         longRunning || this.hasAny(goal, ["while", "until", "repeat"]),
       taskProfile: profile,
       targetPaceMs: profile === "repetitive" ? 1200 : 700,
-      alwaysAllowScripts,
+      alwaysAllowScripts: prefs.alwaysAllowScripts || prefs.autoApprove,
+      autoApprove: prefs.autoApprove,
     };
 
     const session: AgentSession = {
