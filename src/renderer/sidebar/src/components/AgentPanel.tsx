@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { useAgent } from "../contexts/AgentContext";
-import type { AgentStep } from "../contexts/AgentContext";
+import type { AgentStep, PromptAttachment } from "../contexts/AgentContext";
 import {
   Square,
   ChevronDown,
@@ -19,7 +19,7 @@ import {
   Navigation,
   Search,
   Flag,
-  Send,
+  Code,
   KeyRound,
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
@@ -28,6 +28,7 @@ import { ApprovalSheet } from "./ApprovalSheet";
 import { ScriptReviewSheet } from "./ScriptReviewSheet";
 import { CsvViewer } from "./CsvViewer";
 import { ApiKeyManagerModal } from "./ApiKeyManagerModal";
+import { PromptInput } from "./PromptInput";
 
 interface ModelOption {
   readonly provider: "openai" | "anthropic" | "google";
@@ -57,7 +58,7 @@ const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
     case "extractSchema":
       return <Search className="size-3" />;
     case "executeScript":
-      return <Send className="size-3" />;
+      return <Code className="size-3" />;
     case "finish":
       return <Flag className="size-3" />;
     default:
@@ -242,6 +243,7 @@ export const AgentPanel: React.FC = () => {
     resolveScriptReview,
   } = useAgent();
   const [input, setInput] = useState("");
+  const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
   const [modelSelection, setModelSelection] = useState<ModelSelection | null>(
@@ -294,20 +296,15 @@ export const AgentPanel: React.FC = () => {
   };
 
   const handleSubmit = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && attachments.length === 0) return;
     const text = input.trim();
+    const currentAttachments = [...attachments];
     setInput("");
+    setAttachments([]);
     if (isRunning) {
       await sendMessage(text);
     } else {
-      await startAgent(text);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
+      await startAgent(text, currentAttachments.length > 0 ? currentAttachments : undefined);
     }
   };
 
@@ -530,32 +527,18 @@ export const AgentPanel: React.FC = () => {
 
       {/* Input */}
       <div className="p-3 border-t border-border/50">
-        <div
-          className={cn(
-            "flex items-end gap-2 rounded-xl px-3 py-2",
-            "border border-border/60 focus-within:border-primary/40 focus-within:ring-1 focus-within:ring-primary/10",
-            "transition-all",
-          )}
-        >
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={isRunning ? "Send a message..." : "Ask anything..."}
-            className="flex-1 resize-none outline-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground min-h-[20px] max-h-[120px] py-1"
-            rows={1}
-          />
-          <button
-            onClick={handleSubmit}
-            disabled={!input.trim()}
-            className={cn(
-              "size-7 rounded-lg flex items-center justify-center shrink-0 transition-all",
-              "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed",
-            )}
-          >
-            <Send className="size-3.5" />
-          </button>
-        </div>
+        <PromptInput
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          disabled={false}
+          placeholder={isRunning ? "Send a message..." : "Ask anything..."}
+          attachments={attachments}
+          onAddAttachment={(a) => setAttachments((prev) => [...prev, a])}
+          onRemoveAttachment={(id) =>
+            setAttachments((prev) => prev.filter((a) => a.id !== id))
+          }
+        />
         {tokenUsage && tokenUsage.totalTokens > 0 && (
           <div className="mt-1.5 flex items-center justify-center gap-1.5 text-[10px] text-muted-foreground/40 select-none">
             <span title="Input tokens">↑ {formatTokens(tokenUsage.inputTokens)}</span>

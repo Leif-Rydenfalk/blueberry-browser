@@ -11,8 +11,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   API_KEY_PROVIDERS,
+  DEFAULT_AGENT_PREFERENCES,
   SETTINGS_FILENAME,
   SETTINGS_VERSION,
+  type AgentPreferences,
   type ApiKeyProvider,
   type ApiKeyStatus,
   type PersistedSettings,
@@ -24,6 +26,7 @@ const EMPTY_SETTINGS: PersistedSettings = {
   version: SETTINGS_VERSION,
   apiKeys: {},
   lastModel: null,
+  agentPreferences: DEFAULT_AGENT_PREFERENCES,
 };
 
 export class SettingsStore {
@@ -119,6 +122,19 @@ export class SettingsStore {
     this.saveToDisk();
   }
 
+  // ---- Agent preferences ----
+
+  getAgentPreferences(): AgentPreferences {
+    return this.data.agentPreferences ?? DEFAULT_AGENT_PREFERENCES;
+  }
+
+  setAgentPreferences(prefs: Partial<AgentPreferences>): AgentPreferences {
+    const next: AgentPreferences = { ...this.getAgentPreferences(), ...prefs };
+    this.data = { ...this.data, agentPreferences: next };
+    this.saveToDisk();
+    return next;
+  }
+
   // ---- internals ----
 
   private loadFromDisk(): void {
@@ -141,11 +157,11 @@ export class SettingsStore {
   }
 
   private migrate(input: PersistedSettings): PersistedSettings {
-    // Only one version today — future migrations branch here.
     return {
       version: SETTINGS_VERSION,
       apiKeys: input.apiKeys ?? {},
       lastModel: input.lastModel ?? null,
+      agentPreferences: input.agentPreferences ?? DEFAULT_AGENT_PREFERENCES,
     };
   }
 

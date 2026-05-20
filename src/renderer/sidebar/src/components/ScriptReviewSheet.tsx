@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Code2, Pencil, Check, X, CheckCheck } from "lucide-react";
+import { Code2, Pencil, Check, X, CheckCheck, ShieldCheck } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import type { ScriptReviewRequest } from "../contexts/AgentContext";
 
@@ -19,7 +19,7 @@ export const ScriptReviewSheet: React.FC<ScriptReviewSheetProps> = ({
   const [isEditing, setIsEditing] = useState(false);
   const [editedScript, setEditedScript] = useState(request.script);
   const [submitting, setSubmitting] = useState<
-    "approve" | "reject" | null
+    "approve" | "reject" | "always" | null
   >(null);
 
   const decide = async (
@@ -32,6 +32,16 @@ export const ScriptReviewSheet: React.FC<ScriptReviewSheetProps> = ({
       } else {
         await onResolve(request.id, "reject");
       }
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const alwaysAllow = async (): Promise<void> => {
+    setSubmitting("always");
+    try {
+      await window.sidebarAPI.setAgentPreferences({ alwaysAllowScripts: true });
+      await onResolve(request.id, "approve", editedScript);
     } finally {
       setSubmitting(null);
     }
@@ -188,6 +198,21 @@ export const ScriptReviewSheet: React.FC<ScriptReviewSheetProps> = ({
             Reject
           </button>
         </div>
+        <button
+          onClick={alwaysAllow}
+          disabled={!!submitting}
+          className={cn(
+            "w-full flex items-center justify-center gap-1.5 px-3 py-2",
+            "rounded-xl text-xs font-medium",
+            "bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-green-500/20",
+            "border border-green-500/20",
+            "disabled:opacity-40 disabled:cursor-not-allowed",
+            "transition-colors cursor-pointer",
+          )}
+        >
+          <ShieldCheck className="size-3.5" />
+          Always allow scripts (don't ask again)
+        </button>
       </div>
     </div>
   );

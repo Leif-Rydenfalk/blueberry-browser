@@ -9,6 +9,7 @@ import type {
   AgentTaskProfile,
   ApprovalDecision,
   ApprovalRequest,
+  PromptAttachment,
   ScriptReviewRequest,
   ScriptReviewResolution,
   WorkflowResult,
@@ -67,24 +68,27 @@ export class AgentOrchestrator {
 
   async startSession(request: AgentSessionRequest): Promise<AgentSession> {
     const sessionId = uuidv4();
-    const profile = this.classifyTask(request.goal);
+    const goal = this.enrichGoalWithAttachments(request.goal, request.attachments);
+    const profile = this.classifyTask(goal);
     const longRunning = profile === "repetitive" || profile === "communication";
+    const alwaysAllowScripts = this.window.sidebar.settings.getAgentPreferences().alwaysAllowScripts;
 
     const config: AgentConfig = {
-      maxSteps: this.getMaxSteps(profile, request.goal),
+      maxSteps: this.getMaxSteps(profile, goal),
       model: "gpt-4o-mini",
       temperature: 0.7,
       strategy: request.mode,
       maxDurationMs: this.getMaxDurationMs(profile),
       loopMode:
-        longRunning || this.hasAny(request.goal, ["while", "until", "repeat"]),
+        longRunning || this.hasAny(goal, ["while", "until", "repeat"]),
       taskProfile: profile,
       targetPaceMs: profile === "repetitive" ? 1200 : 700,
+      alwaysAllowScripts,
     };
 
     const session: AgentSession = {
       id: sessionId,
-      goal: request.goal,
+      goal,
       status: "running",
       steps: [],
       currentStep: 0,
@@ -175,7 +179,7 @@ export class AgentOrchestrator {
     );
 
     // Start the agent loop
-    runner.run(request.goal).catch((error) => {
+    runner.run(goal).catch((error) => {
       console.error("[AgentOrchestrator] Runner failed:", error);
       const sess = this.sessions.get(sessionId);
       if (sess) {
@@ -211,7 +215,7 @@ export class AgentOrchestrator {
   }
 
   // Run a single goal end-to-end and resolve with the agent's final answer.
-  // Used by bulk workflow execution where we need to await each row's result.
+  // Used by bulk workflow execution and MCP delegation.
   async runOneShot(goal: string): Promise<{
     sessionId: string;
     status: AgentSession["status"];
@@ -225,6 +229,7 @@ export class AgentOrchestrator {
     const sessionId = uuidv4();
     const profile = this.classifyTask(goal);
     const longRunning = profile === "repetitive" || profile === "communication";
+    const alwaysAllowScripts = this.window.sidebar.settings.getAgentPreferences().alwaysAllowScripts;
 
     const config: AgentConfig = {
       maxSteps: this.getMaxSteps(profile, goal),
@@ -235,6 +240,7 @@ export class AgentOrchestrator {
       loopMode: longRunning || this.hasAny(goal, ["while", "until", "repeat"]),
       taskProfile: profile,
       targetPaceMs: profile === "repetitive" ? 1200 : 700,
+      alwaysAllowScripts,
     };
 
     const session: AgentSession = {
@@ -587,5 +593,30 @@ export class AgentOrchestrator {
   private hasAny(text: string, needles: readonly string[]): boolean {
     const lower = text.toLowerCase();
     return needles.some((needle) => lower.includes(needle));
+  }
+
+  private enrichGoalWithAttachments(
+    goal: string,
+    attachments?: ReadonlyArray<PromptAttachment>,
+  ): string {
+    if (!attachments || attachments.length === 0) return goal;
+    const parts: string[] = [goal, ""];
+    const urls = attachments.filter((a) => a.type === "url" && a.url);
+    const files = attachments.filter((a) => a.type === "file");
+    if (urls.length > 0) {
+      parts.push(
+        "Attached URLs (navigate to these as part of the task):\n" +
+          urls.map((a) => `- ${a.name}: ${a.url}`).join("\n"),
+      );
+    }
+    if (files.length > 0) {
+      parts.push(
+        "Attached files (use this content as context):\n" +
+          files
+            .map((a) => `--- ${a.name} ---\n${a.content ?? "(no content)"}`)
+            .join("\n\n"),
+      );
+    }
+    return parts.join("\n");
   }
 }

@@ -18,6 +18,7 @@ import {
   type DelegateTaskResult,
   type DelegateWorkflowArgs,
   type DelegateWorkflowResult,
+  type McpAttachment,
   type McpCompletionEvent,
   type McpContent,
   type McpRequestEvent,
@@ -97,7 +98,8 @@ export class McpHandler {
           "delegate_task requires a non-empty `task` string argument.",
         );
       }
-      const result = await this.delegate({ task }, clientInfo);
+      const attachments = parseAttachments(args?.attachments);
+      const result = await this.delegate({ task, attachments }, clientInfo);
       return delegateResultToToolCallResult(result);
     }
 
@@ -111,6 +113,7 @@ export class McpHandler {
       const wfArgs: DelegateWorkflowArgs = {
         steps: args.steps as DelegateWorkflowArgs["steps"],
         context: typeof args.context === "string" ? args.context : undefined,
+        attachments: parseAttachments(args?.attachments),
       };
       const result = await this.delegateWorkflow(wfArgs, clientInfo);
       return workflowResultToToolCallResult(result);
@@ -214,7 +217,8 @@ export class McpHandler {
 
   private async executeTask(item: TaskQueueItem): Promise<void> {
     try {
-      const runResult = await this.orchestrator.runOneShot(item.args.task);
+      const goal = enrichGoalWithAttachments(item.args.task, item.args.attachments);
+      const runResult = await this.orchestrator.runOneShot(goal);
       const status: DelegateTaskResult["status"] =
         runResult.status === "completed"
           ? "completed"
@@ -246,9 +250,17 @@ export class McpHandler {
 
   private async executeWorkflow(item: WorkflowQueueItem): Promise<void> {
     try {
+      const context = item.args.attachments && item.args.attachments.length > 0
+        ? [
+            item.args.context ?? "",
+            enrichGoalWithAttachments("", item.args.attachments).trim(),
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+        : item.args.context;
       const result = await this.orchestrator.runWorkflow(
         item.args.steps,
-        item.args.context,
+        context,
       );
       item.resolve(result);
     } catch (error) {
@@ -264,6 +276,56 @@ export class McpHandler {
       });
     }
   }
+}
+
+function parseAttachments(
+  raw: unknown,
+): ReadonlyArray<McpAttachment> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const valid: McpAttachment[] = [];
+  for (const item of raw as unknown[]) {
+    if (item && typeof item === "object") {
+      const a = item as Record<string, unknown>;
+      if (
+        (a.type === "url" || a.type === "file") &&
+        typeof a.name === "string"
+      ) {
+        valid.push({
+          type: a.type,
+          name: a.name,
+          url: typeof a.url === "string" ? a.url : undefined,
+          content: typeof a.content === "string" ? a.content : undefined,
+          mimeType: typeof a.mimeType === "string" ? a.mimeType : undefined,
+        });
+      }
+    }
+  }
+  return valid.length > 0 ? valid : undefined;
+}
+
+function enrichGoalWithAttachments(
+  goal: string,
+  attachments?: ReadonlyArray<McpAttachment>,
+): string {
+  if (!attachments || attachments.length === 0) return goal;
+  const parts: string[] = goal ? [goal, ""] : [];
+  const urls = attachments.filter((a) => a.type === "url" && a.url);
+  const files = attachments.filter((a) => a.type === "file");
+  if (urls.length > 0) {
+    parts.push(
+      "Attached URLs (navigate to these as part of the task):\n" +
+        urls.map((a) => `- ${a.name}: ${a.url}`).join("\n"),
+    );
+  }
+  if (files.length > 0) {
+    parts.push(
+      "Attached files (use this content as context):\n" +
+        files
+          .map((a) => `--- ${a.name} ---\n${a.content ?? "(no content)"}`)
+          .join("\n\n"),
+    );
+  }
+  return parts.join("\n");
 }
 
 function delegateResultToToolCallResult(

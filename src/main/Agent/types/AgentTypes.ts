@@ -288,15 +288,34 @@ export interface AgentContext {
   readonly stepNumber?: number;
 }
 
+export interface PromptAttachment {
+  readonly type: "url" | "file";
+  readonly name: string;
+  readonly content?: string;
+  readonly url?: string;
+  readonly mimeType?: string;
+}
+
 export interface AgentConfig {
   readonly maxSteps: number;
   readonly model: string;
   readonly temperature: number;
   readonly strategy: "single-tab" | "multi-tab";
-  readonly maxDurationMs?: number; // Max total time for long tasks
-  readonly loopMode?: boolean; // Allow repeating patterns
+  readonly maxDurationMs?: number;
+  readonly loopMode?: boolean;
   readonly taskProfile?: AgentTaskProfile;
   readonly targetPaceMs?: number;
+  readonly alwaysAllowScripts?: boolean;
+}
+
+export interface AgentSessionRequest {
+  readonly goal: string;
+  readonly context?: {
+    readonly pageUrl: string | null;
+    readonly pageText: string | null;
+  };
+  readonly mode: "single-tab" | "multi-tab";
+  readonly attachments?: ReadonlyArray<PromptAttachment>;
 }
 
 export interface AgentSession {
@@ -343,11 +362,3 @@ export interface AgentStreamUpdate {
   readonly acceptanceCriteria?: string;
 }
 
-export interface AgentSessionRequest {
-  readonly goal: string;
-  readonly context?: {
-    readonly pageUrl: string | null;
-    readonly pageText: string | null;
-  };
-  readonly mode: "single-tab" | "multi-tab";
-}

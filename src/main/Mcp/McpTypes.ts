@@ -99,8 +99,17 @@ export type McpContent =
 
 // ---- Blueberry-specific tool: delegate_task ----
 
+export interface McpAttachment {
+  readonly type: "url" | "file";
+  readonly name: string;
+  readonly content?: string;
+  readonly url?: string;
+  readonly mimeType?: string;
+}
+
 export interface DelegateTaskArgs {
   readonly task: string;
+  readonly attachments?: ReadonlyArray<McpAttachment>;
 }
 
 export interface DelegateTaskResult {
@@ -115,7 +124,7 @@ export interface DelegateTaskResult {
 export const DELEGATE_TASK_TOOL: McpToolSchema = {
   name: "delegate_task",
   description:
-    "Delegate a web-UI task to Blueberry Browser. The task is executed in a real browser as if a human were doing it — clicks, typing, scrolling, form fills. Use natural language: \"Message 'hi' to John Doe on LinkedIn\", \"Send a Gmail to alice@example.com with the body ...\", \"Pull the last 50 transactions from my bank dashboard into a CSV\". Returns the agent's final answer plus the session id.",
+    "Delegate a web-UI task to Blueberry Browser. The task is executed in a real browser as if a human were doing it — clicks, typing, scrolling, form fills. Use natural language: \"Message 'hi' to John Doe on LinkedIn\", \"Send a Gmail to alice@example.com with the body ...\", \"Pull the last 50 transactions from my bank dashboard into a CSV\". Returns the agent's final answer plus the session id. Supports optional `attachments` for passing URLs to navigate to or file content to use as context.",
   inputSchema: {
     type: "object",
     required: ["task"],
@@ -124,6 +133,21 @@ export const DELEGATE_TASK_TOOL: McpToolSchema = {
         type: "string",
         description:
           "Plain-English instruction describing what to do in the browser.",
+      },
+      attachments: {
+        type: "array",
+        description: "Optional URLs or file content to provide as context.",
+        items: {
+          type: "object",
+          required: ["type", "name"],
+          properties: {
+            type: { type: "string", enum: ["url", "file"], description: "url or file" },
+            name: { type: "string", description: "Human-readable label" },
+            url: { type: "string", description: "URL to navigate to (when type=url)" },
+            content: { type: "string", description: "File text content (when type=file)" },
+            mimeType: { type: "string", description: "MIME type hint (optional)" },
+          },
+        },
       },
     },
   },
@@ -141,6 +165,7 @@ export interface DelegateWorkflowStep {
 export interface DelegateWorkflowArgs {
   readonly steps: ReadonlyArray<DelegateWorkflowStep>;
   readonly context?: string;
+  readonly attachments?: ReadonlyArray<McpAttachment>;
 }
 
 export interface DelegateWorkflowStepResult {

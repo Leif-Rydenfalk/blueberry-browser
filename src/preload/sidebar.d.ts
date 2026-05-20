@@ -16,6 +16,14 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface PromptAttachment {
+  readonly type: "url" | "file";
+  readonly name: string;
+  readonly content?: string;
+  readonly url?: string;
+  readonly mimeType?: string;
+}
+
 interface AgentSessionRequest {
   readonly goal: string;
   readonly context?: {
@@ -23,6 +31,11 @@ interface AgentSessionRequest {
     readonly pageText: string | null;
   };
   readonly mode: "single-tab" | "multi-tab";
+  readonly attachments?: PromptAttachment[];
+}
+
+interface AgentPreferences {
+  readonly alwaysAllowScripts: boolean;
 }
 
 interface AgentSubgoal {
@@ -308,6 +321,9 @@ interface SidebarAPI {
     provider: ApiKeyProvider,
     key: string,
   ) => Promise<ApiKeyTestResult>;
+  // Agent preferences
+  getAgentPreferences: () => Promise<AgentPreferences>;
+  setAgentPreferences: (prefs: Partial<AgentPreferences>) => Promise<AgentPreferences>;
 }
 
 interface McpStatus {

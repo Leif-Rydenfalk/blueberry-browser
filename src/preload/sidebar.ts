@@ -17,6 +17,14 @@ interface ChatResponse {
   isComplete: boolean;
 }
 
+interface PromptAttachment {
+  readonly type: "url" | "file";
+  readonly name: string;
+  readonly content?: string;
+  readonly url?: string;
+  readonly mimeType?: string;
+}
+
 interface AgentSessionRequest {
   readonly goal: string;
   readonly context?: {
@@ -24,6 +32,11 @@ interface AgentSessionRequest {
     readonly pageText: string | null;
   };
   readonly mode: "single-tab" | "multi-tab";
+  readonly attachments?: PromptAttachment[];
+}
+
+interface AgentPreferences {
+  readonly alwaysAllowScripts: boolean;
 }
 
 interface AgentStreamUpdate {
@@ -421,6 +434,13 @@ const sidebarAPI = {
 
   testApiKey: (provider: "openai" | "anthropic" | "google", key: string) =>
     electronAPI.ipcRenderer.invoke("settings:test-api-key", provider, key),
+
+  // Agent behaviour preferences
+  getAgentPreferences: (): Promise<AgentPreferences> =>
+    electronAPI.ipcRenderer.invoke("settings:get-agent-preferences"),
+
+  setAgentPreferences: (prefs: Partial<AgentPreferences>): Promise<AgentPreferences> =>
+    electronAPI.ipcRenderer.invoke("settings:set-agent-preferences", prefs),
 };
 
 if (process.contextIsolated) {

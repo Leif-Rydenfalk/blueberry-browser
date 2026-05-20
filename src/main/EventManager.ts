@@ -12,6 +12,7 @@ import { MCP_CHANNELS } from "./Mcp/McpTypes";
 import { SettingsIpcHandler } from "./Settings/SettingsIpcHandler";
 import {
   SETTINGS_CHANNELS,
+  type AgentPreferences,
   type ApiKeyProvider,
 } from "./Settings/SettingsTypes";
 
@@ -312,6 +313,17 @@ export class EventManager {
       SETTINGS_CHANNELS.TEST_API_KEY,
       (_event, provider: ApiKeyProvider, key: string) => {
         return this.settingsHandler.testApiKey(provider, key);
+      },
+    );
+
+    ipcMain.handle(SETTINGS_CHANNELS.GET_AGENT_PREFERENCES, () => {
+      return this.settingsHandler.getAgentPreferences();
+    });
+
+    ipcMain.handle(
+      SETTINGS_CHANNELS.SET_AGENT_PREFERENCES,
+      (_event, prefs: Partial<AgentPreferences>) => {
+        return this.settingsHandler.setAgentPreferences(prefs);
       },
     );
   }

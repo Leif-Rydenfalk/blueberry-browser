@@ -8,6 +8,7 @@ import type { LLMClient } from "../LLMClient";
 import type { SettingsStore } from "./SettingsStore";
 import {
   API_KEY_PROVIDERS,
+  type AgentPreferences,
   type ApiKeyProvider,
   type ApiKeyStatus,
   type ApiKeyTestResult,
@@ -46,6 +47,14 @@ export class SettingsIpcHandler {
     this.store.clearApiKey(provider);
     await this.llmClient.refreshFromSettings();
     return this.getApiKeyStatuses();
+  }
+
+  getAgentPreferences(): AgentPreferences {
+    return this.store.getAgentPreferences();
+  }
+
+  setAgentPreferences(prefs: Partial<AgentPreferences>): AgentPreferences {
+    return this.store.setAgentPreferences(prefs);
   }
 
   // Hits the provider's models endpoint with the supplied key (without

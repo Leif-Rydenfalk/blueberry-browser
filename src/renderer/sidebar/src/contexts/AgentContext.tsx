@@ -66,6 +66,15 @@ export interface ScriptReviewRequest {
   createdAt: number;
 }
 
+export interface PromptAttachment {
+  id: string;
+  type: "url" | "file";
+  name: string;
+  content?: string;
+  url?: string;
+  mimeType?: string;
+}
+
 interface AgentContextType {
   steps: AgentStep[];
   messages: AgentMessage[];
@@ -76,7 +85,7 @@ interface AgentContextType {
   sessionId: string | null;
   pendingApproval: ApprovalRequest | null;
   pendingScriptReview: ScriptReviewRequest | null;
-  startAgent: (goal: string) => Promise<void>;
+  startAgent: (goal: string, attachments?: PromptAttachment[]) => Promise<void>;
   abortAgent: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   clearAgent: () => void;
@@ -129,7 +138,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   const startAgent = useCallback(
-    async (agentGoal: string) => {
+    async (agentGoal: string, attachments?: PromptAttachment[]) => {
       addUserMessage(agentGoal);
 
       setGoal(agentGoal);
@@ -141,6 +150,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
         const result = await window.sidebarAPI.startAgentSession({
           goal: agentGoal,
           mode: "single-tab",
+          attachments: attachments?.map(({ id: _id, ...rest }) => rest),
         });
         setSessionId(result.sessionId);
       } catch (error) {
