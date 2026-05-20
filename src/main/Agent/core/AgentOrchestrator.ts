@@ -8,6 +8,7 @@ import type {
   AgentSessionRequest,
   AgentTaskProfile,
   ApprovalDecision,
+  CollectedBucketSummary,
   ApprovalRequest,
   LoginDecision,
   LoginRequiredRequest,
@@ -19,7 +20,7 @@ import type {
   WorkflowStepResult,
 } from "../types/AgentTypes";
 import { SingleTabStrategy } from "../strategies/SingleTabStrategy";
-import { McpAgentRunner } from "../mcp/McpAgentRunner";
+import { McpAgentRunner, type BucketStore } from "../mcp/McpAgentRunner";
 
 export class AgentOrchestrator {
   private window: Window;
@@ -237,11 +238,16 @@ export class AgentOrchestrator {
 
   // Run a single goal end-to-end and resolve with the agent's final answer.
   // Used by bulk workflow execution and MCP delegation.
-  async runOneShot(goal: string): Promise<{
+  // Workflows pass a shared bucketStore so extracted rows survive between steps.
+  async runOneShot(
+    goal: string,
+    sharedBucketStore?: BucketStore,
+  ): Promise<{
     sessionId: string;
     status: AgentSession["status"];
     answer: string | null;
     steps: AgentStep[];
+    bucketSummaries: ReadonlyArray<CollectedBucketSummary>;
   }> {
     if (this.activeRunner) {
       throw new Error("Another agent run is already in progress");
@@ -279,7 +285,12 @@ export class AgentOrchestrator {
 
     const llmClient = this.window.sidebar.client;
     const strategy = new SingleTabStrategy(this.window, llmClient);
-    const runner = new McpAgentRunner(config, strategy, llmClient);
+    const runner = new McpAgentRunner(
+      config,
+      strategy,
+      llmClient,
+      sharedBucketStore,
+    );
     this.activeRunner = runner;
 
     runner.setApprovalCallback((request) => {
@@ -327,6 +338,7 @@ export class AgentOrchestrator {
             status: "completed",
             answer,
             steps,
+            bucketSummaries: runner.getSummaryOfCollected(),
           });
         },
         (error) => {
@@ -341,6 +353,7 @@ export class AgentOrchestrator {
             status: "error",
             answer: error,
             steps: sess?.steps ?? [],
+            bucketSummaries: runner.getSummaryOfCollected(),
           });
         },
       );
@@ -358,6 +371,7 @@ export class AgentOrchestrator {
           status: "error",
           answer: error instanceof Error ? error.message : String(error),
           steps: sess?.steps ?? [],
+          bucketSummaries: runner.getSummaryOfCollected(),
         });
       });
     });
@@ -372,12 +386,17 @@ export class AgentOrchestrator {
     const workflowId = uuidv4();
     const stepResults: WorkflowStepResult[] = [];
 
+    // Shared bucket store: extracted rows from step N remain available to step N+1.
+    // The agent in later steps sees the inventory in its initial prompt and can
+    // opt to reference any of these in finish(includeBuckets:[...]).
+    const sharedBuckets: BucketStore = new Map();
+
     for (const step of steps) {
       const contextBlock = this.buildWorkflowContext(step, stepResults, sharedContext);
       const fullTask = contextBlock ? `${step.task}\n\n${contextBlock}` : step.task;
 
       try {
-        const runResult = await this.runOneShot(fullTask);
+        const runResult = await this.runOneShot(fullTask, sharedBuckets);
         const stepStatus: WorkflowStepResult["status"] =
           runResult.status === "completed"
             ? "completed"
@@ -389,6 +408,7 @@ export class AgentOrchestrator {
           status: stepStatus,
           answer: runResult.answer,
           stepCount: runResult.steps.length,
+          bucketSummaries: runResult.bucketSummaries,
           error: stepStatus !== "completed" ? (runResult.answer ?? "Step failed") : undefined,
         });
       } catch (error) {

@@ -198,6 +198,9 @@ export interface TabInfo {
 export interface ScreenshotParams {}
 export interface FinishParams {
   readonly answer?: string;
+  // Optional opt-in: bucket names whose CSV should be appended to the answer.
+  // Omit when narrative alone is sufficient (the common case).
+  readonly includeBuckets?: ReadonlyArray<string>;
 }
 export type AgentTaskProfile =
   | "quick"
@@ -221,6 +224,10 @@ export interface WorkflowStepResult {
   readonly status: "completed" | "error" | "aborted";
   readonly answer: string | null;
   readonly stepCount: number;
+  // Snapshot of every bucket the step produced (cumulative — includes anything
+  // inherited from earlier steps in the same workflow). Lets MCP clients see
+  // structured rows even when the agent chose narrative-only in finish().
+  readonly bucketSummaries?: ReadonlyArray<CollectedBucketSummary>;
   readonly error?: string;
 }
 

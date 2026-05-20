@@ -173,6 +173,16 @@ export interface DelegateWorkflowStepResult {
   readonly status: "completed" | "error" | "aborted";
   readonly answer: string | null;
   readonly stepCount: number;
+  // Cumulative bucket inventory at the end of this step. Includes anything
+  // inherited from prior steps in the same workflow (buckets persist across
+  // steps). MCP clients can read structured rows from here even when the agent
+  // chose narrative-only in finish().
+  readonly bucketSummaries?: ReadonlyArray<{
+    readonly name: string;
+    readonly count: number;
+    readonly fields: ReadonlyArray<string>;
+    readonly sample: ReadonlyArray<unknown>;
+  }>;
   readonly error?: string;
 }
 

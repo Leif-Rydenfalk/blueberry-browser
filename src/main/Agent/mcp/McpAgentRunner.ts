@@ -45,11 +45,16 @@ import {
 
 // ─── Bucket types (data collection dedup) ─────────────────────────────────────
 
-interface CollectedBucket {
+export interface CollectedBucket {
   rows: Array<Record<string, unknown>>;
   rowKeys: Set<string>;
   fields: Set<string>;
 }
+
+// Shared bucket store: a workflow passes one of these through every step's
+// McpAgentRunner so extractSchema results from earlier steps remain available
+// for later steps (and for the synthesis step's finish.includeBuckets).
+export type BucketStore = Map<string, CollectedBucket>;
 
 const MAX_BUCKET_ROWS = 500;
 const MAX_BUCKET_SAMPLE = 200;
@@ -94,8 +99,8 @@ export class McpAgentRunner {
   private approveAllForRun = false;
   private stepNum = 0;
   private sessionId = "";
-  private collected: Map<string, CollectedBucket> = new Map();
-  private lastExtractedBucket: string | null = null;
+  private collected: BucketStore = new Map();
+  private ownsBucketStore = true;
   private finishAnswer: string | null = null;
 
   private onUpdate: ((update: AgentStreamUpdate) => void) | null = null;
@@ -113,7 +118,13 @@ export class McpAgentRunner {
     private readonly config: AgentConfig,
     private readonly strategy: TabStrategy,
     private readonly llmClient: LLMClient,
-  ) {}
+    sharedBucketStore?: BucketStore,
+  ) {
+    if (sharedBucketStore) {
+      this.collected = sharedBucketStore;
+      this.ownsBucketStore = false;
+    }
+  }
 
   setCallbacks(
     onUpdate: (update: AgentStreamUpdate) => void,
@@ -239,8 +250,11 @@ export class McpAgentRunner {
     this.pendingLogin = null;
     this.abortController = new AbortController();
     this.stepNum = 0;
-    this.collected = new Map();
-    this.lastExtractedBucket = null;
+    // Buckets persist across workflow steps when an external store is shared.
+    // For single-shot runs we own the Map and clear it so a new task starts fresh.
+    if (this.ownsBucketStore) {
+      this.collected = new Map();
+    }
     this.finishAnswer = null;
 
     const model = this.llmClient.model;
@@ -1143,7 +1157,7 @@ export class McpAgentRunner {
 
       finish: {
         description:
-          "Complete the task and deliver the final answer to the user. For data-collection tasks, include a narrative summary — the runner automatically appends the deduplicated CSV from your extraction buckets. NEVER invent data you didn't extract.",
+          "Complete the task and deliver the final answer to the user. Your narrative is delivered verbatim — no auto-attached CSV. If the user needs raw extracted rows in the answer, opt in with `includeBuckets:[name,...]` and the runner will append each named bucket as a separate CSV section. Buckets persist across workflow steps; you choose whether they belong in the answer. NEVER invent data you didn't extract.",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
@@ -1151,21 +1165,25 @@ export class McpAgentRunner {
               type: "string",
               description: "Final answer / summary for the user",
             },
-            bucket: {
-              type: "string",
+            includeBuckets: {
+              type: "array",
+              items: { type: "string" },
               description:
-                "Optional: which extraction bucket to use for CSV (default: the most recently extracted bucket)",
+                "Optional: bucket names whose deduplicated CSV should be appended after the narrative, one section per name. Omit (or pass an empty array) if narrative alone is sufficient — that's the common case for triage/synthesis answers. Use only when the user actually needs structured rows (e.g. 'give me the table', 'export the data').",
             },
           },
           required: ["answer"],
         }),
-        execute: async (params: { answer: string; bucket?: string }) => {
+        execute: async (params: {
+          answer: string;
+          includeBuckets?: string[];
+        }) => {
           this.stepNum++;
 
-          // Enrich answer with collected CSV if any
-          const enrichedAnswer = this.enrichFinishAnswer(
+          // Opt-in CSV append: only emit bucket CSV when the agent asks for it.
+          const enrichedAnswer = this.composeFinishAnswer(
             params.answer,
-            params.bucket,
+            params.includeBuckets,
           );
           this.finishAnswer = enrichedAnswer;
 
@@ -1411,7 +1429,6 @@ export class McpAgentRunner {
       const rows = data[name];
       if (Array.isArray(rows)) {
         this.recordInBucket(name, rows);
-        this.lastExtractedBucket = name;
       }
     }
 
@@ -1422,7 +1439,6 @@ export class McpAgentRunner {
       const value = data[name];
       if (Array.isArray(value)) {
         this.recordInBucket(name, value);
-        this.lastExtractedBucket = name;
       }
     }
   }
@@ -1464,66 +1480,28 @@ export class McpAgentRunner {
       .join("|");
   }
 
-  private enrichFinishAnswer(
+  // Opt-in: append CSV ONLY for the buckets the agent explicitly named in
+  // finish(includeBuckets:[...]). Unknown / empty bucket names are skipped
+  // silently — the narrative is the source of truth.
+  private composeFinishAnswer(
     narrative: string,
-    explicitBucket?: string,
+    includeBuckets: ReadonlyArray<string> | undefined,
   ): string {
-    if (this.collected.size === 0) return narrative;
-
-    const canonicalName = this.pickCanonicalBucket(explicitBucket);
-    if (!canonicalName) return narrative;
-
-    const canonical = this.collected.get(canonicalName);
-    if (!canonical || canonical.rows.length === 0) return narrative;
-
-    // Strip any model-written CSV from the narrative and replace with ours
-    const cleanNarrative = narrative
-      .replace(/```csv[\s\S]*?```/gi, "")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
-
-    const csvSection = this.bucketToCsv(canonicalName, canonical);
-    if (!csvSection) return narrative;
-
-    const dropped = [...this.collected.entries()]
-      .filter(([n, b]) => n !== canonicalName && b.rows.length > 0)
-      .map(([n, b]) => `${n} (${b.rows.length})`);
-    const droppedNote =
-      dropped.length > 0
-        ? `\n\n*(Older buckets dropped: ${dropped.join(", ")})*`
-        : "";
-
-    return (
-      [
-        cleanNarrative ||
-          `Collected ${canonical.rows.length} rows in bucket "${canonicalName}".`,
-        csvSection,
-      ]
-        .join("\n\n")
-        .trim() + droppedNote
-    );
-  }
-
-  private pickCanonicalBucket(explicit: string | undefined): string | null {
-    if (
-      explicit &&
-      this.collected.has(explicit) &&
-      (this.collected.get(explicit)?.rows.length ?? 0) > 0
-    ) {
-      return explicit;
+    const cleanNarrative = narrative.trim();
+    if (!includeBuckets || includeBuckets.length === 0) {
+      return cleanNarrative;
     }
-    if (
-      this.lastExtractedBucket &&
-      this.collected.has(this.lastExtractedBucket) &&
-      (this.collected.get(this.lastExtractedBucket)?.rows.length ?? 0) > 0
-    ) {
-      return this.lastExtractedBucket;
+
+    const sections: string[] = [];
+    for (const name of includeBuckets) {
+      const bucket = this.collected.get(name);
+      if (!bucket || bucket.rows.length === 0) continue;
+      const csv = this.bucketToCsv(name, bucket);
+      if (csv) sections.push(csv);
     }
-    let fallback: string | null = null;
-    for (const [name, bucket] of this.collected) {
-      if (bucket.rows.length > 0) fallback = name;
-    }
-    return fallback;
+
+    if (sections.length === 0) return cleanNarrative;
+    return [cleanNarrative, ...sections].filter(Boolean).join("\n\n");
   }
 
   private bucketToCsv(name: string, bucket: CollectedBucket): string {
@@ -1536,6 +1514,24 @@ export class McpAgentRunner {
       fields.map((f) => csvEscape(stringifyCell(row[f]))).join(","),
     );
     return `${name} (${bucket.rows.length} rows):\n\`\`\`csv\n${header}\n${lines.join("\n")}\n\`\`\``;
+  }
+
+  // Render a short inventory of buckets already populated before this run.
+  // Used to tell the agent at workflow step N about data captured in steps 1..N-1.
+  private summarizeInheritedBuckets(): string | null {
+    if (this.collected.size === 0) return null;
+    const lines: string[] = [];
+    for (const [name, bucket] of this.collected) {
+      if (bucket.rows.length === 0) continue;
+      const fields = [...bucket.fields].slice(0, 8).join(", ");
+      lines.push(`  - ${name}: ${bucket.rows.length} rows (${fields})`);
+    }
+    if (lines.length === 0) return null;
+    return [
+      "",
+      "Buckets already populated by previous workflow steps (you may reference these in finish via includeBuckets, re-use them as context, or ignore them — including any of these in the final answer is YOUR choice, not automatic):",
+      ...lines,
+    ].join("\n");
   }
 
   getSummaryOfCollected(): ReadonlyArray<CollectedBucketSummary> {
@@ -1980,7 +1976,9 @@ See the 10 EXTRACTION STRATEGIES section above. Never rely on a single method.
 BUCKET SYSTEM:
 - extractSchema uses named buckets. Rows from multiple calls to the SAME name accumulate and deduplicate — use this for pagination.
 - Use descriptive bucket names per data type: "gmail_inbox_list", "gmail_email_details", "slack_unreads", "calendar_today".
-- The runner automatically appends the CSV from your most recent bucket to the finish answer — do NOT write CSV yourself.
+- Buckets PERSIST across workflow steps. If a prior step extracted "gmail_unreads", that bucket is still in the store when this step starts — you'll see the inventory in your initial prompt. Don't re-extract data that's already there.
+- CSV is OPT-IN, not automatic. finish(answer) delivers your narrative verbatim. If — and ONLY if — the user actually needs the raw rows in the response (e.g. "export the data", "give me the table"), opt in with finish(answer:"...", includeBuckets:["gmail_unreads","slack_unreads"]). Each named bucket becomes its own CSV section. For triage/summary/synthesis answers, narrative alone is the right choice — CSV is noisy and the user usually doesn't want it.
+- Buckets remain in the store whether you reference them or not. Not including a bucket in includeBuckets does NOT drop it; later steps can still see and use it.
 
 SCHEMA WRITING:
 - Schema field descriptions are instructions to a scraper-writing LLM. Precision matters.
@@ -2200,6 +2198,12 @@ Always use browser evidence only — never answer from training knowledge when t
     }
 
     parts.push(`Task: ${goal}`);
+
+    // If buckets pre-exist (carried over from earlier workflow steps), tell
+    // the agent so it can avoid re-extracting and so it knows what's available
+    // to reference in finish(includeBuckets:[...]).
+    const inherited = this.summarizeInheritedBuckets();
+    if (inherited) parts.push(inherited);
 
     // Inject explicit pipeline checklist for multi-app tasks so the agent
     // knows exactly which stages to complete before calling finish.
