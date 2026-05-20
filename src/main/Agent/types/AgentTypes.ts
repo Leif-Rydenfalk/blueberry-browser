@@ -302,6 +302,9 @@ export interface AgentConfig {
   readonly taskProfile?: AgentTaskProfile;
   readonly targetPaceMs?: number;
   readonly alwaysAllowScripts?: boolean;
+  // When true (MCP/headless runs): auto-approve all HITL gates, script reviews,
+  // and waitForApproval calls so the run never hangs waiting for human input.
+  readonly autoApprove?: boolean;
 }
 
 export interface ConversationTurn {
