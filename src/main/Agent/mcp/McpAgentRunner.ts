@@ -1762,6 +1762,15 @@ PHASE 3 — CURIOSITY CHECKS:
 12. Use Ctrl+K search to find any messages containing urgent keywords if the task warrants it
 13. Note any important decisions, blockers, or action items across all channels
 
+WHATSAPP WEB (web.whatsapp.com)
+- Navigate to https://web.whatsapp.com to open the messenger.
+- To open a chat with a specific phone number directly: navigate to https://web.whatsapp.com/send?phone=<E164> where <E164> is the number in international format WITHOUT the + or any spaces/dashes (e.g. 46729782220 for Swedish +46 72 978 22 20). WhatsApp will resolve the contact and open the chat.
+- WhatsApp Web uses QR-CODE LOGIN. If you see a large canvas element (≥200px) and any of "Scan to log in" / "Link with phone number instead" / "Linked devices" text, you are on the QR auth wall. This is a SIGN-IN WALL — follow the QR-LOGIN protocol below.
+- After auth: the left sidebar shows chats. Click a chat name to open it.
+- Message input: the contenteditable at the bottom of the chat (placeholder "Type a message"). Click it, type, then press Enter or click the green send arrow to send. ALWAYS waitForApproval with previewData={to, message} before pressing send — messages are irreversible once delivered.
+- Search contacts: click the search bar above the chat list, type a name or number.
+- Triggered by: "whatsapp", "message ___ on whatsapp", "send a whatsapp to ___".
+
 LINKEDIN (linkedin.com)
 - Navigate to https://www.linkedin.com/feed for the home feed.
 - To search for a person: type in the search bar at the top, press Enter, then click "People" filter.
@@ -1849,6 +1858,14 @@ When you hit a login/sign-in page:
 5. Only after 5 failed login attempts: note "Could not sign in to [App] after 5 attempts" in your answer and move to the next pipeline stage.
 
 NEVER give up on login after just one waitForApproval. NEVER skip an app because it "might" be a login wall — screenshot first to confirm.
+
+QR-CODE LOGIN (WhatsApp Web, Signal, Telegram, some banking apps):
+Some apps don't have password fields — they show a QR code that the user scans with a companion phone app to authenticate. Detect this pattern by:
+  • a large canvas element (typically 200–400px square) AND
+  • text mentioning "Scan", "QR", "Link with phone", "Linked devices", or similar
+Treat exactly as a sign-in wall, but the reason text MUST tell the user to scan with their phone, e.g.:
+  waitForApproval(reason="Please open WhatsApp on your phone, go to Settings → Linked Devices → Link a Device, scan the QR code on screen, then click Approve.")
+After approval: screenshot to confirm the QR is gone and the app's main UI (chat list, inbox) is visible. If still on QR: wait(2000) → screenshot → waitForApproval again. The user's phone may take a few seconds to register. The sessions persist across browser restarts (default Electron session is on-disk), so this scan is a one-time cost per device.
 
 After a successful login: navigate back to the correct page (inbox, calendar view, etc.) and continue the task. The login redirected you — you are responsible for navigating back.
 
