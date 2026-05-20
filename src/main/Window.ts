@@ -149,9 +149,9 @@ export class Window {
       }
     }
 
-    // If no tabs left, close the window
+    // Open a fresh Google tab rather than closing the window when all tabs are gone
     if (this.tabsMap.size === 0) {
-      this._baseWindow.close();
+      this.createTab("https://www.google.com");
     }
 
     return true;

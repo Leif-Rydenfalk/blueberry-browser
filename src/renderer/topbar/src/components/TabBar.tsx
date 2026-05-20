@@ -24,10 +24,10 @@ const TabItem: React.FC<TabItemProps> = ({
   onActivate,
 }) => {
   return (
-    <div className="py-1 px-0.5">
+    <div className="flex-1 min-w-[80px] max-w-[200px] py-1 px-0.5">
       <div
         className={cn(
-          "relative flex items-center h-7 pl-2.5 pr-1.5 select-none rounded-lg gap-2",
+          "group/tab relative flex items-center w-full h-7 pl-2.5 pr-1.5 select-none rounded-lg gap-1.5",
           "text-sm transition-all duration-200 cursor-pointer app-region-no-drag",
           isActive
             ? "bg-background shadow-sm text-foreground font-medium ring-1 ring-border/50"
@@ -35,8 +35,8 @@ const TabItem: React.FC<TabItemProps> = ({
         )}
         onClick={() => !isActive && onActivate()}
       >
-        <Favicon src={favicon} className="size-3.5" />
-        <span className="text-xs truncate max-w-[160px] leading-none">
+        <Favicon src={favicon} className="size-3.5 flex-shrink-0" />
+        <span className="flex-1 min-w-0 text-xs truncate leading-none">
           {title || "New Tab"}
         </span>
         <div
