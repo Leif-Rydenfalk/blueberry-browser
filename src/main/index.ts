@@ -9,6 +9,20 @@ let mainWindow: Window | null = null;
 let eventManager: EventManager | null = null;
 let menu: AppMenu | null = null;
 
+// WhatsApp Web and a few other apps refuse to load when the UA contains
+// "Electron/..." or an unknown product name. Strip both tokens so we present
+// as plain Chrome — same approach Strawberry and other Electron-based
+// browsers use.
+const sanitizeUserAgent = (ua: string): string => {
+  const appName = app.getName();
+  const escapedName = appName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return ua
+    .replace(/\sElectron\/\S+/g, "")
+    .replace(new RegExp(`\\s${escapedName}\\/\\S+`, "gi"), "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 const createWindow = (): Window => {
   const window = new Window();
   menu = new AppMenu(window);
@@ -22,6 +36,7 @@ const createWindow = (): Window => {
 
 app.whenReady().then(() => {
   electronApp.setAppUserModelId("com.electron");
+  app.userAgentFallback = sanitizeUserAgent(app.userAgentFallback);
 
   mainWindow = createWindow();
 

@@ -1,6 +1,9 @@
 # Blueberry Browser — Test Suite
 
-The agent test suite runs McpAgentRunner against real websites using a live Electron browser and real LLM calls. **No mocks, no stubs — everything hits the real browser and the real LLM API.**
+Two test types share the same runner:
+
+1. **Compat tests** (`src/main/compatTests.ts`) — deterministic page-level checks. Open a hidden BrowserWindow, navigate to a real site, snapshot the rendered page, assert. No LLM, ~15s each. Pin regressions in browser-level behavior such as UA spoofing.
+2. **Agent tests** (`src/main/testTasks.ts`) — McpAgentRunner against real websites with real LLM calls. **No mocks, no stubs — everything hits the real browser and the real LLM API.**
 
 ---
 
@@ -10,7 +13,7 @@ The agent test suite runs McpAgentRunner against real websites using a live Elec
 # 1. Always build before running tests
 npx electron-vite build
 
-# 2. Run all tasks (window hidden, cheapest model)
+# 2. Run everything (window hidden, cheapest model)
 LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-4-6 npx electron out/main/index.js --test
 
 # Or via pnpm (builds + runs, model baked into package.json):
@@ -19,8 +22,14 @@ pnpm test
 # Show the browser window while running (good for debugging):
 pnpm test:visible
 
-# Run only tasks matching a name substring:
+# Run only tests matching a name substring (applies to both compat + agent):
 LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-4-6 npx electron out/main/index.js --test --filter=todomvc
+
+# Run only compat tests (fast — no LLM cost, no API key needed):
+npx electron out/main/index.js --test --compat-only
+
+# Skip compat, run only agent tasks:
+LLM_PROVIDER=anthropic LLM_MODEL=claude-sonnet-4-6 npx electron out/main/index.js --test --no-compat
 ```
 
 ## Model selection
@@ -74,6 +83,38 @@ Electron requires an X display. On this machine `$DISPLAY=:1` is pre-configured 
 - `answer: ...` — first 200 chars of the agent's final answer
 
 Reports are also written as JSON to `~/.config/Electron/test-reports/report-<timestamp>.json` with full step logs.
+
+---
+
+## Compat test catalogue
+
+Compat tests are defined in `src/main/compatTests.ts`. They guard against site-level regressions that would otherwise be invisible until a user hits them.
+
+| Test | What it pins |
+|------|--------------|
+| `whatsapp-web-loads-qr` | `app.userAgentFallback` is sanitized so WhatsApp Web renders its QR login screen, not "Update Google Chrome" |
+
+### Adding a new compat test
+
+Append to `COMPAT_TESTS` in `compatTests.ts`:
+
+```typescript
+{
+  name: "kebab-case-name",
+  url: "https://example.com/path",
+  waitMs: 15_000,                    // time to wait after load before snapshotting
+  timeoutMs: 30_000,                 // hard ceiling for the whole test
+  validate: (snap) => {
+    // snap: { url, title, bodyText, hasCanvas, canvasSize, userAgent }
+    if (contains(snap.bodyText, "unsupported", "update your browser")) {
+      return { pass: false, reason: `site blocked us — UA: ${snap.userAgent}` };
+    }
+    return { pass: true, reason: "loaded" };
+  },
+}
+```
+
+**When to add a compat test:** every time you fix a site-level "this browser doesn't work" issue. The test is your tripwire for the next regression.
 
 ---
 

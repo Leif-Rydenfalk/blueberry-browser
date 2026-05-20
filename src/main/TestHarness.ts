@@ -17,6 +17,11 @@ import type { Window } from "./Window";
 import { AgentOrchestrator } from "./Agent/core/AgentOrchestrator";
 import type { AgentStreamUpdate } from "./Agent/types/AgentTypes";
 import { TEST_TASKS, type TestTask, type TestValidation } from "./testTasks";
+import {
+  COMPAT_TESTS,
+  runCompatTest,
+  type CompatResult,
+} from "./compatTests";
 
 // ─── Colours (ANSI) ──────────────────────────────────────────────────────────
 
@@ -65,39 +70,63 @@ interface StepLogEntry {
 export class TestHarness {
   private readonly window: Window;
   private readonly filter: string | null;
+  private readonly compatOnly: boolean;
+  private readonly skipCompat: boolean;
 
   constructor(window: Window) {
     this.window = window;
     const args = process.argv.slice(2);
     const filterArg = args.find((a) => a.startsWith("--filter="));
     this.filter = filterArg ? filterArg.replace("--filter=", "") : null;
+    this.compatOnly = args.includes("--compat-only");
+    this.skipCompat = args.includes("--no-compat");
   }
 
   async run(): Promise<void> {
-    const tasks = this.filter
-      ? TEST_TASKS.filter((t) => t.name.includes(this.filter!))
-      : TEST_TASKS;
+    const compatTests = this.skipCompat
+      ? []
+      : this.filter
+        ? COMPAT_TESTS.filter((t) => t.name.includes(this.filter!))
+        : COMPAT_TESTS;
 
-    if (tasks.length === 0) {
-      console.log(c("red", `No tasks match filter "${this.filter}"`));
+    const agentTasks = this.compatOnly
+      ? []
+      : this.filter
+        ? TEST_TASKS.filter((t) => t.name.includes(this.filter!))
+        : TEST_TASKS;
+
+    if (compatTests.length === 0 && agentTasks.length === 0) {
+      const what = this.filter ? `match filter "${this.filter}"` : "available";
+      console.log(c("red", `No tests ${what}`));
       app.exit(1);
       return;
     }
 
-    this.printBanner(tasks.length);
+    this.printBanner(agentTasks.length, compatTests.length);
+
+    const compatResults: CompatResult[] = [];
+    for (const test of compatTests) {
+      console.log(
+        `\n${c("bold", c("magenta", "▶"))} ${c("bold", test.name)} ${c("dim", `(compat, ${(test.timeoutMs / 1000).toFixed(0)}s budget)`)}`,
+      );
+      const result = await runCompatTest(test);
+      compatResults.push(result);
+      this.printCompatResult(result);
+    }
 
     const results: TaskResult[] = [];
-    for (const task of tasks) {
+    for (const task of agentTasks) {
       const result = await this.runTask(task);
       results.push(result);
       this.printTaskResult(result);
     }
 
-    this.printSummary(results);
-    this.writeReport(results);
+    this.printSummary(results, compatResults);
+    this.writeReport(results, compatResults);
 
-    const failed = results.filter((r) => !r.passed && !r.skipped).length;
-    app.exit(failed > 0 ? 1 : 0);
+    const agentFailed = results.filter((r) => !r.passed && !r.skipped).length;
+    const compatFailed = compatResults.filter((r) => !r.passed).length;
+    app.exit(agentFailed + compatFailed > 0 ? 1 : 0);
   }
 
   // ─── Run one task ───────────────────────────────────────────────────────────
@@ -270,12 +299,32 @@ export class TestHarness {
 
   // ─── Output ─────────────────────────────────────────────────────────────────
 
-  private printBanner(count: number): void {
+  private printBanner(agentCount: number, compatCount: number): void {
+    const parts: string[] = [];
+    if (compatCount > 0) parts.push(`${compatCount} compat`);
+    if (agentCount > 0) parts.push(`${agentCount} agent`);
     console.log(
-      `\n${c("bold", "🫐 Blueberry Agent Test Suite")}  ${c("dim", `${count} tasks`)}`
+      `\n${c("bold", "🫐 Blueberry Test Suite")}  ${c("dim", parts.join(" + "))}`,
     );
     if (this.filter) console.log(c("yellow", `  filter: ${this.filter}`));
     console.log(c("dim", "─".repeat(60)));
+  }
+
+  private printCompatResult(result: CompatResult): void {
+    const dur = `${(result.durationMs / 1000).toFixed(1)}s`;
+    if (result.error) {
+      console.log(`  ${c("red", "FAIL")} ${c("grey", dur)} — ${c("dim", result.error)}`);
+      return;
+    }
+    if (result.validation) {
+      const icon = result.validation.pass ? c("green", "PASS") : c("red", "FAIL");
+      const reason = result.validation.pass ? "" : c("dim", ` — ${result.validation.reason}`);
+      console.log(`  ${icon} ${c("grey", dur)}${reason}`);
+    }
+    if (result.snapshot) {
+      const ua = result.snapshot.userAgent;
+      console.log(`  ${c("dim", "UA:")} ${c("grey", ua.substring(0, 140))}`);
+    }
   }
 
   private printTaskResult(result: TaskResult): void {
@@ -301,19 +350,34 @@ export class TestHarness {
     }
   }
 
-  private printSummary(results: TaskResult[]): void {
-    const passed = results.filter((r) => r.passed).length;
-    const failed = results.filter((r) => !r.passed && !r.skipped).length;
-    const total = results.length;
-    const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);
+  private printSummary(
+    results: TaskResult[],
+    compatResults: CompatResult[],
+  ): void {
+    const passed =
+      results.filter((r) => r.passed).length +
+      compatResults.filter((r) => r.passed).length;
+    const failed =
+      results.filter((r) => !r.passed && !r.skipped).length +
+      compatResults.filter((r) => !r.passed).length;
+    const total = results.length + compatResults.length;
+    const totalMs =
+      results.reduce((sum, r) => sum + r.durationMs, 0) +
+      compatResults.reduce((sum, r) => sum + r.durationMs, 0);
 
     console.log("\n" + c("dim", "─".repeat(60)));
     console.log(
-      `${c("bold", "Results:")} ${c("green", `${passed} passed`)}  ${failed > 0 ? c("red", `${failed} failed`) : c("grey", "0 failed")}  ${c("dim", `/ ${total} total`)}  ${c("dim", `${(totalMs / 1000).toFixed(1)}s`)}`
+      `${c("bold", "Results:")} ${c("green", `${passed} passed`)}  ${failed > 0 ? c("red", `${failed} failed`) : c("grey", "0 failed")}  ${c("dim", `/ ${total} total`)}  ${c("dim", `${(totalMs / 1000).toFixed(1)}s`)}`,
     );
 
     if (failed > 0) {
-      console.log(`\n${c("red", "Failed tasks:")}`);
+      console.log(`\n${c("red", "Failed:")}`);
+      compatResults
+        .filter((r) => !r.passed)
+        .forEach((r) => {
+          const reason = r.error ?? r.validation?.reason ?? "no validator";
+          console.log(`  ${c("red", "✗")} ${r.test.name} ${c("dim", "(compat)")} — ${c("dim", reason)}`);
+        });
       results
         .filter((r) => !r.passed && !r.skipped)
         .forEach((r) => {
@@ -327,7 +391,10 @@ export class TestHarness {
 
   // ─── JSON report ────────────────────────────────────────────────────────────
 
-  private writeReport(results: TaskResult[]): void {
+  private writeReport(
+    results: TaskResult[],
+    compatResults: CompatResult[],
+  ): void {
     try {
       const reportsDir = path.join(
         app.getPath("userData"),
@@ -340,9 +407,30 @@ export class TestHarness {
 
       const report = {
         timestamp: new Date().toISOString(),
-        passed: results.filter((r) => r.passed).length,
-        failed: results.filter((r) => !r.passed && !r.skipped).length,
-        total: results.length,
+        passed:
+          results.filter((r) => r.passed).length +
+          compatResults.filter((r) => r.passed).length,
+        failed:
+          results.filter((r) => !r.passed && !r.skipped).length +
+          compatResults.filter((r) => !r.passed).length,
+        total: results.length + compatResults.length,
+        compat: compatResults.map((r) => ({
+          name: r.test.name,
+          url: r.test.url,
+          passed: r.passed,
+          durationMs: r.durationMs,
+          snapshot: r.snapshot
+            ? {
+                title: r.snapshot.title,
+                bodyText: r.snapshot.bodyText.substring(0, 500),
+                hasCanvas: r.snapshot.hasCanvas,
+                canvasSize: r.snapshot.canvasSize,
+                userAgent: r.snapshot.userAgent,
+              }
+            : undefined,
+          validation: r.validation,
+          error: r.error,
+        })),
         tasks: results.map((r) => ({
           name: r.task.name,
           passed: r.passed,
