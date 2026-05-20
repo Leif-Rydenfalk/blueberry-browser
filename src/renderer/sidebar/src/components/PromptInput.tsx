@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback, useEffect } from "react";
+import React, { useRef, useState, useCallback } from "react";
 import {
   Paperclip,
   X,
@@ -250,142 +250,52 @@ function detectApps(text: string): ReadonlyArray<AppDef> {
   return found;
 }
 
-// ─── Autocomplete suggestions ──────────────────────────────────────────────────
+// ─── Inline word-level autocomplete ────────────────────────────────────────────
 
-interface AutocompleteSuggestion {
-  readonly id: string;
+interface WordCompletion {
+  readonly textBefore: string;
   readonly label: string;
-  readonly description: string;
-  readonly completion: string;
-  // One or more trigger substrings (EN + SV) — any match shows this suggestion
-  readonly triggers: ReadonlyArray<string>;
+  readonly suffix: string;
+  readonly favicon: string;
 }
 
-const AUTOCOMPLETE_SUGGESTIONS: ReadonlyArray<AutocompleteSuggestion> = [
-  // Gmail — Inbox
-  {
-    id: "gmail-inbox",
-    label: "Gmail Inbox",
-    description: "Öppna / Open inbox",
-    completion: "Show my Gmail inbox and unread emails",
-    triggers: [
-      "gmail inbox",
-      "gmail inkorg",
-      "inkorgen",
-      "läs mail",
-      "kolla mail",
-      "öppna gmail",
-      "visa mail",
-      "check gmail",
-      "check email",
-      "show inbox",
-      "my inbox",
-    ],
-  },
-  // Gmail — Send
-  {
-    id: "gmail-send",
-    label: "Send Gmail",
-    description: "Skicka / Send email",
-    completion: "Send an email via Gmail to ",
-    triggers: [
-      "skicka mail",
-      "skicka mejl",
-      "skicka e-post",
-      "maila",
-      "send email",
-      "send mail",
-      "compose email",
-      "write email",
-      "send via gmail",
-    ],
-  },
-  // Gmail — Search
-  {
-    id: "gmail-search",
-    label: "Search Gmail",
-    description: "Sök / Search emails",
-    completion: "Search my Gmail for ",
-    triggers: [
-      "sök mail",
-      "sök mejl",
-      "hitta mail",
-      "search gmail",
-      "search email",
-      "find email",
-    ],
-  },
-  // Gmail — Reply
-  {
-    id: "gmail-reply",
-    label: "Reply to Email",
-    description: "Svara / Reply",
-    completion: "Reply to the latest email from ",
-    triggers: [
-      "svara på mail",
-      "svara på mejl",
-      "reply to email",
-      "reply to gmail",
-      "respond to email",
-    ],
-  },
-  // Calendar
-  {
-    id: "calendar-check",
-    label: "Google Calendar",
-    description: "Visa / Show calendar",
-    completion: "Show my Google Calendar for ",
-    triggers: [
-      "kolla kalender",
-      "visa kalender",
-      "google calendar",
-      "my calendar",
-      "my meetings",
-      "check calendar",
-    ],
-  },
-  // Sheets
-  {
-    id: "sheets-open",
-    label: "Google Sheets",
-    description: "Öppna / Open spreadsheet",
-    completion: "Open Google Sheets and ",
-    triggers: ["google sheets", "kalkylark", "spreadsheet", "öppna sheets"],
-  },
-  // Slack — DM
-  {
-    id: "slack-message",
-    label: "Slack Message",
-    description: "Skicka Slack-meddelande",
-    completion: "Send a Slack message to ",
-    triggers: [
-      "slack message",
-      "skicka slack",
-      "dm on slack",
-      "slack dm",
-      "message on slack",
-    ],
-  },
+// [typed-word-lowercase, display-label, favicon-url]
+const WORD_COMPLETIONS: ReadonlyArray<readonly [string, string, string]> = [
+  ["gmail", "Gmail", GMAIL_FAVICON],
+  ["slack", "Slack", "https://www.google.com/s2/favicons?domain=slack.com&sz=16"],
+  ["linkedin", "LinkedIn", "https://www.google.com/s2/favicons?domain=linkedin.com&sz=16"],
+  ["calendar", "Calendar", "https://www.google.com/s2/favicons?domain=calendar.google.com&sz=16"],
+  ["notion", "Notion", "https://www.google.com/s2/favicons?domain=notion.so&sz=16"],
+  ["salesforce", "Salesforce", "https://www.google.com/s2/favicons?domain=salesforce.com&sz=16"],
+  ["sheets", "Sheets", "https://www.google.com/s2/favicons?domain=sheets.google.com&sz=16"],
+  ["drive", "Drive", "https://www.google.com/s2/favicons?domain=drive.google.com&sz=16"],
+  ["hubspot", "HubSpot", "https://www.google.com/s2/favicons?domain=hubspot.com&sz=16"],
+  ["github", "GitHub", "https://www.google.com/s2/favicons?domain=github.com&sz=16"],
+  ["airtable", "Airtable", "https://www.google.com/s2/favicons?domain=airtable.com&sz=16"],
+  ["jira", "Jira", "https://www.google.com/s2/favicons?domain=atlassian.com&sz=16"],
+  ["trello", "Trello", "https://www.google.com/s2/favicons?domain=trello.com&sz=16"],
 ];
 
-function getAutocompleteSuggestions(
-  text: string,
-): ReadonlyArray<AutocompleteSuggestion> {
-  if (!text.trim() || text.length < 3) return [];
-  const lower = text.toLowerCase();
-  const results: AutocompleteSuggestion[] = [];
+function getWordCompletion(text: string): WordCompletion | null {
+  if (!text) return null;
+  const m = text.match(/(\S+)$/);
+  if (!m) return null;
+  const typed = m[1];
+  const lower = typed.toLowerCase();
+  if (lower.length < 2) return null;
 
-  for (const s of AUTOCOMPLETE_SUGGESTIONS) {
-    if (
-      s.triggers.some(
-        (t) => lower.includes(t) || t.startsWith(lower.split(" ").pop() ?? ""),
-      )
-    ) {
-      results.push(s);
+  for (const [word, label, favicon] of WORD_COMPLETIONS) {
+    if (word.startsWith(lower) && word !== lower) {
+      return {
+        textBefore: text.slice(0, text.length - typed.length),
+        label,
+        // suffix uses the label's casing, sliced past what was typed
+        suffix: label.slice(typed.length),
+        favicon,
+      };
     }
   }
-
-  return results.slice(0, 4);
+  return null;
 }
 
 const AppChip: React.FC<{ app: AppDef }> = ({ app }) => (
@@ -410,51 +320,6 @@ const AppChip: React.FC<{ app: AppDef }> = ({ app }) => (
   </span>
 );
 
-const AutocompleteDropdown: React.FC<{
-  suggestions: ReadonlyArray<AutocompleteSuggestion>;
-  activeIndex: number;
-  onSelect: (s: AutocompleteSuggestion) => void;
-}> = ({ suggestions, activeIndex, onSelect }) => {
-  if (suggestions.length === 0) return null;
-
-  return (
-    <div
-      className={cn(
-        "absolute bottom-full left-0 right-0 mb-1.5 z-50",
-        "rounded-xl border border-border bg-background shadow-lg overflow-hidden",
-      )}
-    >
-      {suggestions.map((s, i) => (
-        <button
-          key={s.id}
-          type="button"
-          onMouseDown={(e) => {
-            e.preventDefault();
-            onSelect(s);
-          }}
-          className={cn(
-            "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
-            i === activeIndex ? "bg-secondary" : "hover:bg-secondary/50",
-          )}
-        >
-          <span className="text-xs font-medium text-foreground shrink-0">
-            {s.label}
-          </span>
-          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
-            {s.description}
-          </span>
-        </button>
-      ))}
-      <div className="px-3 py-1 border-t border-border/40 text-[9px] text-muted-foreground/50 flex items-center gap-1">
-        <span>↑↓ navigate</span>
-        <span>·</span>
-        <span>Enter / Tab to select</span>
-        <span>·</span>
-        <span>Esc dismiss</span>
-      </div>
-    </div>
-  );
-};
 
 const AttachmentChip: React.FC<{
   attachment: PromptAttachment;
@@ -634,60 +499,18 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onRemoveAttachment,
 }) => {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
-  const [showAutocomplete, setShowAutocomplete] = useState(false);
-  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const detectedApps = detectApps(value);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const autocompleteSuggestions = getAutocompleteSuggestions(value);
-
-  // Show autocomplete when there are suggestions and the user is actively editing
-  useEffect(() => {
-    if (autocompleteSuggestions.length > 0) {
-      setShowAutocomplete(true);
-      setAutocompleteIndex(0);
-    } else {
-      setShowAutocomplete(false);
-    }
-  }, [autocompleteSuggestions.length]);
-
-  const applyAutocomplete = useCallback(
-    (s: AutocompleteSuggestion) => {
-      onChange(s.completion);
-      setShowAutocomplete(false);
-    },
-    [onChange],
-  );
+  const wordCompletion = getWordCompletion(value);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (showAutocomplete && autocompleteSuggestions.length > 0) {
-        if (e.key === "ArrowDown") {
-          e.preventDefault();
-          setAutocompleteIndex((i) => (i + 1) % autocompleteSuggestions.length);
-          return;
-        }
-        if (e.key === "ArrowUp") {
-          e.preventDefault();
-          setAutocompleteIndex((i) =>
-            i === 0 ? autocompleteSuggestions.length - 1 : i - 1,
-          );
-          return;
-        }
-        if (
-          e.key === "Tab" ||
-          (e.key === "Enter" && !e.shiftKey && autocompleteIndex >= 0)
-        ) {
-          e.preventDefault();
-          applyAutocomplete(autocompleteSuggestions[autocompleteIndex]);
-          return;
-        }
-        if (e.key === "Escape") {
-          setShowAutocomplete(false);
-          return;
-        }
+      if (wordCompletion && e.key === "Tab") {
+        e.preventDefault();
+        onChange(wordCompletion.textBefore + wordCompletion.label);
+        return;
       }
-
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         onSubmit();
@@ -696,13 +519,7 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         setShowAttachMenu(false);
       }
     },
-    [
-      onSubmit,
-      showAutocomplete,
-      autocompleteSuggestions,
-      autocompleteIndex,
-      applyAutocomplete,
-    ],
+    [onSubmit, wordCompletion, onChange],
   );
 
   return (
@@ -745,14 +562,6 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           />
         )}
 
-        {showAutocomplete && !showAttachMenu && (
-          <AutocompleteDropdown
-            suggestions={autocompleteSuggestions}
-            activeIndex={autocompleteIndex}
-            onSelect={applyAutocomplete}
-          />
-        )}
-
         {/* Attachment button */}
         <button
           type="button"
@@ -769,15 +578,43 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           <Paperclip className="size-3.5" />
         </button>
 
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          placeholder={placeholder ?? "Ask anything..."}
-          className="flex-1 resize-none outline-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground min-h-[20px] max-h-[120px] py-1 disabled:opacity-50"
-          rows={1}
-        />
+        {/* Textarea with inline ghost-text word completion */}
+        <div className="relative flex-1">
+          {wordCompletion && !showAttachMenu && (
+            <div
+              aria-hidden
+              className="absolute inset-0 pointer-events-none text-sm py-1 overflow-hidden"
+              style={{
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                overflowWrap: "break-word",
+              }}
+            >
+              {/* Transparent clone positions the ghost suffix at the cursor */}
+              <span style={{ color: "transparent" }}>{value}</span>
+              <span className="inline-flex items-center gap-0.5 text-muted-foreground/40">
+                {wordCompletion.suffix}
+                <img
+                  src={wordCompletion.favicon}
+                  alt=""
+                  className="size-3 rounded-sm ml-0.5 inline-block align-text-bottom opacity-50"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).style.display = "none";
+                  }}
+                />
+              </span>
+            </div>
+          )}
+          <textarea
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            placeholder={placeholder ?? "Ask anything..."}
+            className="w-full resize-none outline-none bg-transparent text-sm text-foreground placeholder:text-muted-foreground min-h-[20px] max-h-[120px] py-1 disabled:opacity-50"
+            rows={1}
+          />
+        </div>
 
         <button
           type="button"
