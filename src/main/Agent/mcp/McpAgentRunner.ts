@@ -1578,6 +1578,100 @@ SIGN-IN WALLS
 Use waitForApproval to ask the user to log in, then continue after they approve. Message: "Please sign in to [App] and click Approve to continue."
 
 ────────────────────────────────────────────────────────────
+MULTI-APP PIPELINE TASKS — MANDATORY PROTOCOL
+────────────────────────────────────────────────────────────
+When the task mentions 2 or more apps or data sources, you are running a PIPELINE task.
+
+╔═══════════════════════════════════════════════════════════════╗
+║  NEVER call finish until EVERY app/source in the task is done ║
+╚═══════════════════════════════════════════════════════════════╝
+
+STEP 1 — PLAN: Before your first tool call, identify ALL apps/sources the task requires.
+Write the pipeline in order: App1 → App2 → App3 → Synthesize.
+The initial prompt will list them explicitly — follow that list exactly.
+
+STEP 2 — EXTRACT (not just navigate): For EACH app:
+  a. navigate to the app
+  b. if sign-in wall: waitForApproval("Please sign in to [App] and click Approve to continue")
+  c. wait for page to load (waitForSelector or screenshot to confirm)
+  d. extractSchema with a descriptive bucket name (e.g. "gmail_unreads", "slack_unreads", "calendar_today")
+  e. Confirm rows collected in the tool result — only then mark this app DONE
+
+STEP 3 — COUNT: After each app, check: how many apps remain? If > 0, continue. Do NOT call finish.
+
+STEP 4 — SYNTHESIZE: Only after ALL apps are done, call finish with sections for each source and a priority action list.
+
+────────────────────────────────────────────────────────────
+PIPELINE EXAMPLE 1 — Daily Brief (Gmail + Slack + Calendar)
+────────────────────────────────────────────────────────────
+Task: "Check my Gmail inbox, Slack unreads, and Google Calendar and give me a summary of what needs my attention today"
+Pipeline stages: [Gmail] → [Slack] → [Calendar] → [Synthesize]
+
+Correct execution:
+1. navigate(https://mail.google.com) → handle sign-in if needed
+2. extractSchema(name="gmail_unreads", schema={sender:"sender name", subject:"email subject", snippet:"first line of body", time:"received time", label:"Gmail label"})
+   → "gmail_unreads" bucket now has N rows. Gmail ✓
+3. navigate(https://app.slack.com) → handle sign-in if needed
+4. extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"who sent it", preview:"message preview", time:"when sent", type:"channel/DM/mention"})
+   → "slack_unreads" bucket now has N rows. Slack ✓. Calendar still pending — DO NOT call finish.
+5. navigate(https://calendar.google.com) → handle sign-in if needed
+6. extractSchema(name="calendar_today", schema={time:"start time", title:"event title", attendees:"comma-separated attendees", location:"video link or room", type:"internal/external"})
+   → "calendar_today" bucket now has N rows. All 3 apps done.
+7. finish(answer="# What Needs Your Attention Today\n\n## Gmail (N unreads)\n- URGENT: ...\n- ...\n\n## Slack (N unreads)\n- ...\n\n## Calendar (N events)\n- ...\n\n## Priority Actions\n1. ...\n2. ...")
+
+WRONG — never do this:
+× navigate(gmail) → navigate(slack) → finish("Reached step budget")  ← NEVER finish mid-pipeline
+× finish after 2/3 apps because "probably covered everything"          ← NEVER skip sources
+× return a placeholder answer without actual extracted data             ← NEVER invent data
+
+────────────────────────────────────────────────────────────
+PIPELINE EXAMPLE 2 — Meeting Prep (Calendar + LinkedIn + Salesforce + Notion)
+────────────────────────────────────────────────────────────
+Task: "Look at my Google Calendar for tomorrow, pull LinkedIn and Salesforce history for each external attendee, and give me a one-page prep doc in Notion"
+Pipeline: [Calendar] → [LinkedIn per attendee] → [Salesforce per attendee] → [Notion doc]
+
+1. navigate(calendar.google.com) → switch to tomorrow's view
+2. extractSchema(name="tomorrow_meetings", schema={time:"start time", title:"meeting title", attendees:"all attendees with emails", organizer:"organizer"})
+3. Identify external attendees (emails not matching user's company domain)
+4. For EACH external attendee (loop):
+   a. navigate(linkedin.com) → search "[Name] [Company]"
+   b. extractSchema(name="linkedin_profiles", schema={name, title, company, connection_degree:"1st/2nd/3rd", recent_activity:"recent LinkedIn post or activity"})
+   c. navigate(salesforce.com) → search contact
+   d. extractSchema(name="sf_contacts", schema={name, last_contact_date, deal_stage, deal_value, notes:"recent activity notes"})
+5. All attendees researched → navigate(notion.so)
+6. Create page "Meeting Prep — [Date]", fill with attendee profiles, Salesforce context, talking points
+7. finish(answer="Created prep doc at [Notion URL]. [summary of attendees and key context]")
+
+────────────────────────────────────────────────────────────
+PIPELINE EXAMPLE 3 — Lead Enrichment (Google Sheets + LinkedIn)
+────────────────────────────────────────────────────────────
+Task: "I have 300 leads in this Google Sheet. Find their LinkedIn URLs, job titles, and emails and fill in the empty columns"
+Pipeline: [Sheets: read leads] → [LinkedIn: enrich each (loop)] → [Sheets: write back]
+
+1. navigate to the Sheet URL → extractSchema(name="leads_input", schema={row_number, name, company})
+   → Memory: "Found N leads. Starting enrichment."
+2. For EACH lead in batches of 10:
+   a. navigate(linkedin.com) → search "[Name] [Company]" → extractSchema(name="leads_enriched", schema={name, linkedin_url, title, email})
+   b. Every 10 leads: note progress ("Enriched 40/300")
+3. All leads enriched → return to Sheet → type enriched data row by row
+4. Verify 5 random rows → finish with stats
+
+────────────────────────────────────────────────────────────
+PIPELINE EXAMPLE 4 — Conference Research (Web + LinkedIn + Notion)
+────────────────────────────────────────────────────────────
+Task: "I'm going to CES. Find speakers most relevant to us, check LinkedIn connections, prep a shortlist in Notion"
+Pipeline: [CES site: speakers] → [LinkedIn: check top 20] → [Notion: shortlist table]
+
+1. Search Google: "CES 2026 speakers" → navigate to conference agenda page
+2. extractSchema(name="ces_speakers", schema={name, title, company, topic, session_time}) → filter for relevance
+3. For top 20 relevant speakers:
+   a. navigate(linkedin.com) → search "[Name] [Company]"
+   b. extractSchema(name="speaker_profiles", schema={name, linkedin_url, connection_degree, recent_post})
+4. navigate(notion.so) → create "CES 2026 — Speaker Shortlist" page
+5. Create table: Name, Company, Topic, Relevance, Connection, Action; fill with top 10
+6. finish(answer="Created shortlist at [Notion URL]. Top picks: [list with connection status]")
+
+────────────────────────────────────────────────────────────
 COMPLETION — MANDATORY
 ────────────────────────────────────────────────────────────
 You MUST call the finish tool to end every session, without exception. Never generate a plain text response as your final action — always use a tool call. If you have an answer ready, call finish(answer=...) immediately. If you hit a wall or run out of ideas, call finish and honestly describe what happened.
@@ -1612,6 +1706,18 @@ Always use browser evidence only — never answer from training knowledge when t
 
     parts.push(`Task: ${goal}`);
 
+    // Inject explicit pipeline checklist for multi-app tasks so the agent
+    // knows exactly which stages to complete before calling finish.
+    const stages = this.detectPipelineStages(goal);
+    if (stages.length >= 2) {
+      parts.push(`
+PIPELINE TASK — you must complete ALL of the following stages before calling finish:
+${stages.map((s, i) => `  Stage ${i + 1}: ${s.label} — ${s.instruction}`).join("\n")}
+  Stage ${stages.length + 1}: Synthesize — combine all collected data into a structured final answer with sections for each source and a priority action list.
+
+DO NOT call finish after completing only some stages. Work through every stage in order, extract real data at each one, then synthesize.`);
+    }
+
     if (ctx.currentUrl) {
       parts.push(`Current URL: ${ctx.currentUrl}`);
     }
@@ -1627,9 +1733,131 @@ Always use browser evidence only — never answer from training knowledge when t
       parts.push(`\nPage text:\n${excerpt}`);
     }
 
-    parts.push("\nStart working on the task. Call finish when done.");
+    if (stages.length >= 2) {
+      parts.push("\nStart with Stage 1. Do not call finish until all stages are complete.");
+    } else {
+      parts.push("\nStart working on the task. Call finish when done.");
+    }
 
     return parts.join("\n");
+  }
+
+  // Detect which apps/sources are mentioned in the goal and return pipeline
+  // stages with per-source extraction instructions. Order: input sources →
+  // lookup/enrichment sources → output destinations.
+  private detectPipelineStages(goal: string): Array<{ label: string; instruction: string }> {
+    const lower = goal.toLowerCase();
+    const stages: Array<{ label: string; instruction: string }> = [];
+
+    // ── Input / data-read sources ──────────────────────────────────────────
+
+    // Gmail: require explicit inbox/gmail signal, not just the word "email"
+    // (which can appear as a data field: "find their emails")
+    const wantsGmail =
+      lower.includes("gmail") ||
+      lower.includes("inbox") ||
+      /check\s+(my\s+)?email/.test(lower) ||
+      /email\s+inbox/.test(lower) ||
+      lower.includes("slack unreads") === false && lower.includes("mail inbox");
+    if (wantsGmail) {
+      stages.push({
+        label: "Gmail / Email",
+        instruction: 'navigate to https://mail.google.com, handle sign-in if needed, then extractSchema(name="gmail_unreads", schema={sender:"sender name", subject:"email subject", snippet:"first line", time:"received time", label:"Gmail label"}) to collect unread emails',
+      });
+    }
+
+    if (lower.includes("slack")) {
+      stages.push({
+        label: "Slack",
+        instruction: 'navigate to https://app.slack.com, handle sign-in if needed, then extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"message sender", preview:"message preview", time:"timestamp", type:"channel/DM/mention"}) to collect unreads',
+      });
+    }
+
+    if (lower.includes("google calendar") || lower.includes("calendar")) {
+      const isTomorrow = lower.includes("tomorrow");
+      const bucketName = isTomorrow ? "calendar_tomorrow" : "calendar_today";
+      stages.push({
+        label: "Google Calendar",
+        instruction: `navigate to https://calendar.google.com, handle sign-in if needed${isTomorrow ? ", navigate to tomorrow's date" : ""}, then extractSchema(name="${bucketName}", schema={time:"event start time", title:"event title", attendees:"all attendees", location:"room or video link", type:"internal/external"}) to collect events`,
+      });
+    }
+
+    if (lower.includes("google sheet") || lower.includes("spreadsheet")) {
+      stages.push({
+        label: "Google Sheets (read)",
+        instruction: 'navigate to the Google Sheet URL, handle sign-in if needed, extractSchema(name="sheet_leads", schema={row_number:"row index", name:"person name", company:"company name"}) to read all existing rows — note the total count',
+      });
+    }
+
+    // Conference/event site should be visited BEFORE LinkedIn checks
+    if (lower.includes("ces") || lower.includes("conference") || lower.includes("speakers") || lower.includes("event agenda")) {
+      stages.push({
+        label: "Conference / Event Site",
+        instruction: 'search Google for the official event website (e.g. "CES 2026 speakers"), navigate to the speakers or agenda page, extractSchema(name="event_speakers", schema={name:"speaker name", title:"job title", company:"company", topic:"session topic", session_time:"time slot"}) to collect the full speaker list, then filter for relevance',
+      });
+    }
+
+    // ── Lookup / enrichment sources ────────────────────────────────────────
+
+    if (lower.includes("linkedin")) {
+      stages.push({
+        label: "LinkedIn",
+        instruction: 'for EACH person in your target list: navigate to https://www.linkedin.com, search "[Name] [Company]", extractSchema(name="linkedin_profiles", schema={name:"full name", title:"current title", company:"current company", connection_degree:"1st/2nd/3rd", linkedin_url:"profile URL", recent_activity:"recent post or activity"}) — loop until all targets are researched',
+      });
+    }
+
+    if (lower.includes("salesforce")) {
+      stages.push({
+        label: "Salesforce",
+        instruction: 'for EACH attendee/contact: navigate to Salesforce, search the contact name, extractSchema(name="sf_contacts", schema={name:"contact name", last_contact_date:"most recent interaction", deal_stage:"current opportunity stage", deal_value:"opportunity value", notes:"recent activity notes"}) — loop until all contacts are pulled',
+      });
+    }
+
+    if (lower.includes("hubspot")) {
+      stages.push({
+        label: "HubSpot",
+        instruction: 'navigate to https://app.hubspot.com, handle sign-in if needed, search relevant contacts/deals, extractSchema(name="hubspot_data", schema={name, company, deal_stage, last_activity, notes})',
+      });
+    }
+
+    if (lower.includes("github")) {
+      stages.push({
+        label: "GitHub",
+        instruction: 'navigate to https://github.com, handle sign-in if needed, open the relevant repo, extractSchema(name="github_data", schema={title, status, author, date, description})',
+      });
+    }
+
+    // ── Output / write-back destinations ──────────────────────────────────
+
+    if (lower.includes("notion")) {
+      stages.push({
+        label: "Notion (create doc)",
+        instruction: 'navigate to https://www.notion.so, handle sign-in if needed, create a new page with a descriptive title (e.g. "Meeting Prep — [Date]" or "CES 2026 Shortlist"), fill it with structured tables and sections using ALL data collected in prior stages, include talking points and action items',
+      });
+    }
+
+    // Google Sheets write-back: only add if Sheets was already added as a read
+    // stage AND LinkedIn/enrichment was also detected (lead enrichment pattern)
+    if (
+      (lower.includes("google sheet") || lower.includes("spreadsheet")) &&
+      (lower.includes("linkedin") || lower.includes("fill") || lower.includes("enrich"))
+    ) {
+      // Replace the read stage instruction with a combined read+write description
+      const readIdx = stages.findIndex((s) => s.label === "Google Sheets (read)");
+      if (readIdx >= 0) {
+        stages[readIdx] = {
+          label: "Google Sheets (read then write-back)",
+          instruction: 'FIRST: navigate to the Sheet, extractSchema(name="sheet_leads", schema={row_number, name, company}) to read all rows. THEN after enrichment: return to the Sheet, navigate cell by cell to fill in the enriched columns (LinkedIn URL, title, email) row by row using Tab between cells and Enter between rows',
+        };
+      } else {
+        stages.push({
+          label: "Google Sheets (write-back)",
+          instruction: 'return to the Google Sheet, navigate to the first empty column, fill in enriched data row by row using Tab between cells and Enter between rows — verify a sample of rows before finishing',
+        });
+      }
+    }
+
+    return stages;
   }
 
   // ─── Emit helpers ─────────────────────────────────────────────────────────────
