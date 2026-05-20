@@ -5,6 +5,17 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: {
+      rollupOptions: {
+        input: {
+          index: resolve(__dirname, "src/main/index.ts"),
+          // Stdio bridge for the MCP delegation endpoint. Bundles to
+          // out/main/mcp-stdio.js so external agent frameworks can spawn it
+          // as a child process. See MCP_DELEGATION.md.
+          "mcp-stdio": resolve(__dirname, "src/main/Mcp/blueberryMcpCli.ts"),
+        },
+      },
+    },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],

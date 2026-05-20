@@ -4,6 +4,7 @@ import { WorkflowProvider } from "./contexts/WorkflowContext";
 import { AgentPanel } from "./components/AgentPanel";
 import { WorkflowPanel } from "./components/WorkflowPanel";
 import { SidebarResizeHandle } from "./components/SidebarResizeHandle";
+import { McpStatusBadge } from "./components/McpStatusBadge";
 import { useDarkMode } from "@common/hooks/useDarkMode";
 import { cn } from "@common/lib/utils";
 
@@ -20,6 +21,7 @@ const SidebarContent: React.FC = () => {
   return (
     <div className="relative h-screen flex flex-col bg-background border-l border-border/60">
       <SidebarResizeHandle />
+      <McpStatusBadge />
       {/* Tab switcher */}
       <div className="flex border-b border-border/50 pl-1.5">
         <button

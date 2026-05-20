@@ -6,7 +6,33 @@ https://github.com/user-attachments/assets/bbf939e2-d87c-4c77-ab7d-828259f6d28d
 
 ---
 
-## Overview
+## What Blueberry Is
+
+**Blueberry is a delegation runtime for agentic systems.** Other AI agents
+(Hermes, Claude projects, n8n flows, cron jobs, anything that speaks MCP) hand
+Blueberry a natural-language task — *"Message 'Hello how is it going' to Leif
+Adamec Rydenfalk on LinkedIn"*, *"Send this Gmail to ledamecrydenfalk@gmail.com:
+<body>"*, *"Pull the last 50 transactions from my bank dashboard into a CSV"* —
+and Blueberry **performs that task in a real browser as if it were a human**.
+
+Two things distinguish it from "another browser-using agent":
+
+1. **Human-equivalent execution.** Blueberry uses the same DOM, clicks the same
+   buttons, fills the same forms a person would. No site-specific scrapers, no
+   bespoke API integrations, no headless tricks that sites can detect. If a
+   human can do it in a browser, Blueberry can do it.
+2. **It's a callable endpoint, not just an app.** Blueberry exposes itself over
+   the Model Context Protocol (MCP) so any other agent on the system — or any
+   remote agent over HTTP+SSE — can delegate web-UI work to it and await a
+   structured result. The destructive-action gate still routes through the
+   local human on the desktop, so unattended automation stays safe.
+
+See [`MCP_DELEGATION.md`](./MCP_DELEGATION.md) for the protocol, the tool
+schema, and how to wire an external agent up to a running Blueberry.
+
+---
+
+## Original Challenge
 
 You are the **CTO of Blueberry Browser**, a Strawberry competitor. Your mission is to add a feature to Blueberry that makes it superior & more promising than Strawberry.
 

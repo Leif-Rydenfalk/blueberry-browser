@@ -340,6 +340,59 @@ const sidebarAPI = {
   getSidebarWidth: (): Promise<number> =>
     electronAPI.ipcRenderer.invoke("sidebar:get-width"),
 
+  // MCP delegation endpoint
+  getMcpStatus: () => electronAPI.ipcRenderer.invoke("mcp:get-status"),
+
+  onMcpStatusChanged: (
+    callback: (status: {
+      enabled: boolean;
+      listening: boolean;
+      host: string;
+      port: number;
+      url: string;
+      totalRequests: number;
+      lastError: string | null;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("mcp:status-changed", (_, status) =>
+      callback(status),
+    );
+  },
+
+  onMcpRequestReceived: (
+    callback: (event: {
+      id: string;
+      receivedAt: number;
+      task: string;
+      clientInfo?: { name?: string; version?: string };
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("mcp:request-received", (_, event) =>
+      callback(event),
+    );
+  },
+
+  onMcpRequestCompleted: (
+    callback: (event: {
+      id: string;
+      completedAt: number;
+      status: "completed" | "error" | "aborted";
+      answer: string | null;
+      stepCount: number;
+      error?: string;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("mcp:request-completed", (_, event) =>
+      callback(event),
+    );
+  },
+
+  removeMcpListeners: () => {
+    electronAPI.ipcRenderer.removeAllListeners("mcp:status-changed");
+    electronAPI.ipcRenderer.removeAllListeners("mcp:request-received");
+    electronAPI.ipcRenderer.removeAllListeners("mcp:request-completed");
+  },
+
   onTokenUsageUpdated: (
     callback: (totals: {
       inputTokens: number;

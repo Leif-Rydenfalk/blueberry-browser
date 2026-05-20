@@ -6,11 +6,16 @@ import {
   WORKFLOW_CHANNELS,
   type WorkflowDataset,
 } from "./Workflow/WorkflowTypes";
+import { McpHandler } from "./Mcp/McpHandler";
+import { McpServer, readMcpOptionsFromEnv } from "./Mcp/McpServer";
+import { MCP_CHANNELS } from "./Mcp/McpTypes";
 
 export class EventManager {
   private mainWindow: Window;
   private agentHandler: AgentIpcHandler;
   private workflowHandler: WorkflowIpcHandler;
+  private mcpHandler: McpHandler;
+  private mcpServer: McpServer;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
@@ -18,13 +23,31 @@ export class EventManager {
     this.workflowHandler = new WorkflowIpcHandler(mainWindow);
     // The workflow handler drives bulk runs through the agent orchestrator.
     this.workflowHandler.setOrchestrator(this.agentHandler.orchestrator);
+
+    // MCP delegation endpoint — outside agents call into our orchestrator.
+    this.mcpHandler = new McpHandler(this.agentHandler.orchestrator);
+    this.mcpServer = new McpServer(
+      this.mcpHandler,
+      readMcpOptionsFromEnv(process.env.npm_package_version ?? "1.0.0"),
+    );
+
     this.setupEventHandlers();
     this.setupAgentHandlers();
     this.setupWorkflowHandlers();
+    this.setupMcpHandlers();
+
+    // Kick off the MCP server in the background; failures are logged inside.
+    void this.mcpServer.start().catch((err) => {
+      console.error("[EventManager] MCP server failed to start:", err);
+    });
   }
 
   getWorkflowHandler(): WorkflowIpcHandler {
     return this.workflowHandler;
+  }
+
+  getMcpServer(): McpServer {
+    return this.mcpServer;
   }
 
   private setupEventHandlers(): void {
@@ -223,6 +246,33 @@ export class EventManager {
     ipcMain.handle(WORKFLOW_CHANNELS.ABORT_BULK, () => {
       this.workflowHandler.abortBulk();
       return true;
+    });
+  }
+
+  private setupMcpHandlers(): void {
+    this.mcpServer.setOnStatusChanged((status) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        MCP_CHANNELS.STATUS_CHANGED,
+        status,
+      );
+    });
+
+    this.mcpHandler.setOnRequest((event) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        MCP_CHANNELS.REQUEST_RECEIVED,
+        event,
+      );
+    });
+
+    this.mcpHandler.setOnCompletion((event) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        MCP_CHANNELS.REQUEST_COMPLETED,
+        event,
+      );
+    });
+
+    ipcMain.handle(MCP_CHANNELS.GET_STATUS, () => {
+      return this.mcpServer.getStatus();
     });
   }
 
@@ -462,5 +512,8 @@ export class EventManager {
 
   public cleanup(): void {
     ipcMain.removeAllListeners();
+    void this.mcpServer.stop().catch((err) => {
+      console.error("[EventManager] MCP server stop failed:", err);
+    });
   }
 }

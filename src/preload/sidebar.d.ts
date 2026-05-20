@@ -271,6 +271,40 @@ interface SidebarAPI {
   removeTokenUsageUpdatedListener: () => void;
   setSidebarWidth: (width: number) => Promise<number>;
   getSidebarWidth: () => Promise<number>;
+  // MCP delegation endpoint
+  getMcpStatus: () => Promise<McpStatus>;
+  onMcpStatusChanged: (callback: (status: McpStatus) => void) => void;
+  onMcpRequestReceived: (callback: (event: McpRequestEvent) => void) => void;
+  onMcpRequestCompleted: (
+    callback: (event: McpCompletionEvent) => void,
+  ) => void;
+  removeMcpListeners: () => void;
+}
+
+interface McpStatus {
+  readonly enabled: boolean;
+  readonly listening: boolean;
+  readonly host: string;
+  readonly port: number;
+  readonly url: string;
+  readonly totalRequests: number;
+  readonly lastError: string | null;
+}
+
+interface McpRequestEvent {
+  readonly id: string;
+  readonly receivedAt: number;
+  readonly task: string;
+  readonly clientInfo?: { readonly name?: string; readonly version?: string };
+}
+
+interface McpCompletionEvent {
+  readonly id: string;
+  readonly completedAt: number;
+  readonly status: "completed" | "error" | "aborted";
+  readonly answer: string | null;
+  readonly stepCount: number;
+  readonly error?: string;
 }
 
 declare global {

@@ -327,14 +327,94 @@ Execution flow:
 
 ---
 
+## Track 6 — MCP Delegation Endpoint *(shipped)*
+
+### The problem
+Blueberry's agent is locked inside the Blueberry desktop app. A useful
+agent-of-agents (Hermes, a Claude project, an n8n flow, a cron job) has no way
+to say *"hey Blueberry, message Leif on LinkedIn for me"* and await a result.
+The agent is a feature of one app instead of a callable runtime.
+
+### The fix
+Expose Blueberry over the [Model Context Protocol](https://modelcontextprotocol.io)
+so any other agent on the system can delegate web-UI tasks to it. The
+minimum-viable surface is one tool:
+
+```ts
+delegate_task({ task: string }) → { sessionId, status, answer, stepCount, url, error? }
+```
+
+Two transports ship in parallel:
+
+- **HTTP + SSE on localhost** (default port 7777, env-configurable). Natural
+  for Electron — the main process can bind a port without becoming a child
+  process. SSE streams live progress so the caller renders a progress bar
+  instead of staring at a spinner.
+- **stdio bridge** — a tiny companion CLI (`out/mcp-stdio.js`) that external
+  agents spawn as a child process; it proxies stdio MCP into HTTP+SSE calls
+  against the running Blueberry. Matches the "standard MCP" pattern most
+  agent frameworks expect today.
+
+The destructive-action gate from Track 4 still runs locally — a remote agent
+cannot auto-approve "Send" or "Pay." The human at the Blueberry desktop is
+always the source of truth for irreversible steps.
+
+### Where it lives in the code
+- `src/main/Mcp/McpTypes.ts` — MCP JSON-RPC envelopes, the `delegate_task`
+  tool schema, `MCP_CHANNELS` for renderer-facing IPC events
+  (`mcp:status-changed`, `mcp:request-received`, `mcp:request-completed`).
+- `src/main/Mcp/McpHandler.ts` — implements `delegate_task` by calling
+  `AgentOrchestrator.runOneShot(goal)`, returning the structured envelope.
+  Also serializes inbound requests so a second delegation while one is in
+  flight is queued (or rejected with `agent_busy`).
+- `src/main/Mcp/McpServer.ts` — Node `http`-based HTTP+SSE server. Routes
+  `POST /mcp` (one-shot JSON-RPC), `GET /mcp/sse` (streaming progress),
+  `GET /healthz` (liveness). Speaks MCP `initialize` → `tools/list` →
+  `tools/call`.
+- `src/main/Mcp/blueberryMcpCli.ts` — stdio bridge entry. Bundles to
+  `out/mcp-stdio.js`. Reads JSON-RPC from stdin, fetches the local HTTP
+  endpoint, writes responses to stdout. Reports `server_unreachable`
+  cleanly if Blueberry isn't running.
+- `src/main/index.ts` — boots `McpServer` after the window is ready;
+  cleans it up on `window-all-closed`.
+- `electron.vite.config.ts` — adds `mcp-stdio` to the main process rollup
+  inputs so it builds alongside `out/main/index.js`.
+- `src/preload/sidebar.ts` (+ `.d.ts`) — exposes `onMcpStatusChanged`,
+  `onMcpRequestReceived`, `onMcpRequestCompleted`, `getMcpStatus`.
+- `src/renderer/sidebar/src/components/McpStatusBadge.tsx` — sidebar
+  indicator: shows port + listening state + recent delegation count.
+
+### Open follow-ups (not in this PR)
+- **Auth token** for the HTTP endpoint, so a non-localhost deployment is
+  safe. v1 binds 127.0.0.1 only.
+- **More tools**: `list_workflows`, `run_workflow(id, dataset?)` so callers
+  can hit deterministic recordings when one exists.
+- **Reverse-delegation**: let a remote agent answer the human's approval
+  prompt via a second MCP tool (the user already opted *not* to do this in
+  v1 — humans approve locally — but it's the right v2 question).
+- **Persistent allow-list** of caller identities, so multiple agents on the
+  same machine can be told apart in the sidebar UI.
+
+### Why it ships money
+Blueberry stops being "a browser with AI" and becomes **the human-equivalent
+web-action runtime that other agents call into**. Every agent stack on the
+market wants a way to do real browser tasks — sending the LinkedIn message,
+filing the expense report, scraping the gated dashboard — and Blueberry is
+the one that does it like a person, on the user's actual logged-in browser,
+with a human in the loop for destructive actions. That's a sellable product
+category, not just a feature.
+
+---
+
 ## Implementation order (recommended)
 
 1. ~~**Track 5**~~ ✓ shipped — small, self-contained, immediate value on every scrape task.
 2. ~~**Track 1**~~ ✓ shipped — gives Tracks 2 & 4 the real interaction data they need.
 3. ~~**Track 2**~~ ✓ shipped — workflows now loop over a CSV with per-step column bindings.
 4. ~~**Track 4**~~ ✓ shipped — destructive-action gate + bottom-sheet approval UI.
-5. **Track 3** — needed once concurrency matters; deferrable until the first 4 prove out.
+5. ~~**Track 6**~~ ✓ shipped — MCP delegation endpoint so outside agents can hand off web-UI tasks.
+6. **Track 3** — needed once concurrency matters; deferrable until the first 4 prove out.
 
 ---
 
-*Last updated: 2026-05-19*
+*Last updated: 2026-05-20*
