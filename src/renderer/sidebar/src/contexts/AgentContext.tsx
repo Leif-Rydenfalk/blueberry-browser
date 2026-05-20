@@ -5,7 +5,33 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useRef,
 } from "react";
+
+interface ConversationTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
+// Compress large data in history entries so context stays token-efficient.
+// Keeps prose text intact; replaces CSV blocks with a compact summary.
+function compressForHistory(content: string): string {
+  let compressed = content
+    .replace(/```csv\n([\s\S]*?)```/gi, (_, csv: string) => {
+      const lines = csv.trim().split("\n").filter(Boolean);
+      const rowCount = Math.max(0, lines.length - 1);
+      const header = lines[0] ?? "";
+      return `[CSV data: ${rowCount} rows | columns: ${header}]`;
+    })
+    .trim();
+
+  const MAX_CHARS = 2500;
+  if (compressed.length > MAX_CHARS) {
+    compressed = compressed.substring(0, MAX_CHARS) + "… [truncated]";
+  }
+
+  return compressed;
+}
 
 export interface AgentStep {
   id: string;
@@ -34,11 +60,7 @@ export interface AgentMessage {
   stepData?: AgentStep;
 }
 
-export type ApprovalDecision =
-  | "approve-once"
-  | "approve-all"
-  | "skip"
-  | "stop";
+export type ApprovalDecision = "approve-once" | "approve-all" | "skip" | "stop";
 
 export interface ApprovalRequest {
   id: string;
@@ -89,10 +111,7 @@ interface AgentContextType {
   abortAgent: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
   clearAgent: () => void;
-  resolveApproval: (
-    id: string,
-    decision: ApprovalDecision,
-  ) => Promise<void>;
+  resolveApproval: (id: string, decision: ApprovalDecision) => Promise<void>;
   resolveScriptReview: (
     id: string,
     decision: "approve" | "reject",
@@ -102,7 +121,7 @@ interface AgentContextType {
 
 const AgentContext = createContext<AgentContextType | null>(null);
 
-export const useAgent = () => {
+export const useAgent = (): AgentContextType => {
   const context = useContext(AgentContext);
   if (!context) {
     throw new Error("useAgent must be used within an AgentProvider");
@@ -124,6 +143,9 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     useState<ApprovalRequest | null>(null);
   const [pendingScriptReview, setPendingScriptReview] =
     useState<ScriptReviewRequest | null>(null);
+  // Accumulates user goals + agent final answers across runs in this session.
+  const [sessionHistory, setSessionHistory] = useState<ConversationTurn[]>([]);
+  const currentGoalRef = useRef<string>("");
 
   const addUserMessage = useCallback((content: string) => {
     setMessages((prev) => [
@@ -139,6 +161,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
 
   const startAgent = useCallback(
     async (agentGoal: string, attachments?: PromptAttachment[]) => {
+      currentGoalRef.current = agentGoal;
       addUserMessage(agentGoal);
 
       setGoal(agentGoal);
@@ -150,7 +173,8 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
         const result = await window.sidebarAPI.startAgentSession({
           goal: agentGoal,
           mode: "single-tab",
-          attachments: attachments?.map(({ id: _id, ...rest }) => rest),
+          attachments: attachments?.map(({ id: _id, ...rest }) => rest), // eslint-disable-line @typescript-eslint/no-unused-vars
+          conversationHistory: sessionHistory,
         });
         setSessionId(result.sessionId);
       } catch (error) {
@@ -158,7 +182,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
         setIsRunning(false);
       }
     },
-    [addUserMessage],
+    [addUserMessage, sessionHistory],
   );
 
   const abortAgent = useCallback(async () => {
@@ -191,6 +215,8 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     setSessionId(null);
     setPendingApproval(null);
     setPendingScriptReview(null);
+    setSessionHistory([]);
+    currentGoalRef.current = "";
   }, []);
 
   const resolveApproval = useCallback(
@@ -200,9 +226,8 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (error) {
         console.error("Failed to resolve approval:", error);
       } finally {
-        setPendingApproval(
-          (current): ApprovalRequest | null =>
-            current?.id === id ? null : current,
+        setPendingApproval((current): ApprovalRequest | null =>
+          current?.id === id ? null : current,
         );
       }
     },
@@ -224,9 +249,8 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (error) {
         console.error("Failed to resolve script review:", error);
       } finally {
-        setPendingScriptReview(
-          (current): ScriptReviewRequest | null =>
-            current?.id === id ? null : current,
+        setPendingScriptReview((current): ScriptReviewRequest | null =>
+          current?.id === id ? null : current,
         );
       }
     },
@@ -234,7 +258,8 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   useEffect(() => {
-    const handleAgentUpdate = (data: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- IPC payload is untyped at the preload boundary
+    const handleAgentUpdate = (data: any): void => {
       console.log(
         "[AgentContext] Received update:",
         data.action?.type,
@@ -303,6 +328,15 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
             timestamp: Date.now(),
           },
         ]);
+        // Append this exchange to session history for future runs
+        const capturedGoal = currentGoalRef.current;
+        if (capturedGoal) {
+          setSessionHistory((prev) => [
+            ...prev,
+            { role: "user", content: compressForHistory(capturedGoal) },
+            { role: "assistant", content: compressForHistory(answer) },
+          ]);
+        }
       }
     };
 
@@ -333,9 +367,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   useEffect(() => {
-    const handleScriptReviewRequired = (
-      request: ScriptReviewRequest,
-    ): void => {
+    const handleScriptReviewRequired = (request: ScriptReviewRequest): void => {
       setPendingScriptReview(request);
     };
     window.sidebarAPI.onAgentScriptReviewRequired(handleScriptReviewRequired);

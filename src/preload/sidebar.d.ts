@@ -24,6 +24,11 @@ interface PromptAttachment {
   readonly mimeType?: string;
 }
 
+interface ConversationTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
 interface AgentSessionRequest {
   readonly goal: string;
   readonly context?: {
@@ -32,6 +37,7 @@ interface AgentSessionRequest {
   };
   readonly mode: "single-tab" | "multi-tab";
   readonly attachments?: PromptAttachment[];
+  readonly conversationHistory?: ConversationTurn[];
 }
 
 interface AgentPreferences {
@@ -323,7 +329,9 @@ interface SidebarAPI {
   ) => Promise<ApiKeyTestResult>;
   // Agent preferences
   getAgentPreferences: () => Promise<AgentPreferences>;
-  setAgentPreferences: (prefs: Partial<AgentPreferences>) => Promise<AgentPreferences>;
+  setAgentPreferences: (
+    prefs: Partial<AgentPreferences>,
+  ) => Promise<AgentPreferences>;
 }
 
 interface McpStatus {

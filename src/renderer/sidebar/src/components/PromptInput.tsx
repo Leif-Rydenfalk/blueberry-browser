@@ -1,5 +1,18 @@
-import React, { useRef, useState, useCallback } from "react";
-import { Paperclip, X, Link, FileText, Send } from "lucide-react";
+import React, { useRef, useState, useCallback, useEffect } from "react";
+import {
+  Paperclip,
+  X,
+  Link,
+  FileText,
+  Send,
+  Mail,
+  Inbox,
+  Search,
+  Reply,
+  Calendar,
+  FileSpreadsheet,
+  HardDrive,
+} from "lucide-react";
 import { cn } from "@common/lib/utils";
 
 export interface PromptAttachment {
@@ -22,38 +35,126 @@ interface PromptInputProps {
   readonly onRemoveAttachment: (id: string) => void;
 }
 
-// App definitions: name patterns → display label + brand color + favicon URL
+// ─── App chip definitions ──────────────────────────────────────────────────────
+// Action-specific entries for Gmail come first so they win over the generic match.
+
 interface AppDef {
   readonly patterns: ReadonlyArray<string>;
   readonly label: string;
   readonly color: string;
   readonly favicon: string;
+  readonly actionIcon?: React.ReactNode;
 }
 
+const GMAIL_RED = "#EA4335";
+const GMAIL_FAVICON =
+  "https://www.google.com/s2/favicons?domain=mail.google.com&sz=16";
+
 const APP_DEFS: ReadonlyArray<AppDef> = [
+  // Gmail — action-specific (checked before the generic Gmail entry)
+  {
+    patterns: [
+      "skicka mail",
+      "skicka mejl",
+      "skicka e-post",
+      "skicka det till",
+      "skicka den till",
+      "maila ",
+      "send email",
+      "send mail",
+      "send an email",
+      "compose email",
+      "write email",
+      "send via gmail",
+      "send it to",
+      "send this to",
+    ],
+    label: "Send Gmail",
+    color: GMAIL_RED,
+    favicon: GMAIL_FAVICON,
+    actionIcon: <Mail className="size-2.5" />,
+  },
+  {
+    patterns: [
+      "gmail inbox",
+      "gmail inkorg",
+      "inkorgen",
+      "läs mail",
+      "läs mejl",
+      "kolla mail",
+      "kolla mejl",
+      "öppna gmail",
+      "visa mail",
+      "check gmail",
+      "check email",
+      "check my email",
+      "show inbox",
+      "my emails",
+      "my inbox",
+    ],
+    label: "Gmail Inbox",
+    color: GMAIL_RED,
+    favicon: GMAIL_FAVICON,
+    actionIcon: <Inbox className="size-2.5" />,
+  },
+  {
+    patterns: [
+      "sök mail",
+      "sök mejl",
+      "hitta mail",
+      "search gmail",
+      "search email",
+      "find email",
+      "search my email",
+    ],
+    label: "Search Gmail",
+    color: GMAIL_RED,
+    favicon: GMAIL_FAVICON,
+    actionIcon: <Search className="size-2.5" />,
+  },
+  {
+    patterns: [
+      "svara på mail",
+      "svara på mejl",
+      "reply to email",
+      "reply to gmail",
+      "respond to email",
+      "reply to",
+    ],
+    label: "Reply Email",
+    color: GMAIL_RED,
+    favicon: GMAIL_FAVICON,
+    actionIcon: <Reply className="size-2.5" />,
+  },
+  // Generic Gmail fallback
   {
     patterns: ["gmail", "google mail"],
     label: "Gmail",
-    color: "#EA4335",
-    favicon: "https://www.google.com/s2/favicons?domain=mail.google.com&sz=16",
+    color: GMAIL_RED,
+    favicon: GMAIL_FAVICON,
   },
   {
-    patterns: ["google calendar", "g calendar"],
+    patterns: ["google calendar", "g calendar", "kalender", "calendar"],
     label: "Calendar",
     color: "#4285F4",
-    favicon: "https://www.google.com/s2/favicons?domain=calendar.google.com&sz=16",
+    favicon:
+      "https://www.google.com/s2/favicons?domain=calendar.google.com&sz=16",
+    actionIcon: <Calendar className="size-2.5" />,
   },
   {
-    patterns: ["google sheets", "g sheets", "spreadsheet"],
+    patterns: ["google sheets", "g sheets", "spreadsheet", "kalkylark"],
     label: "Sheets",
     color: "#34A853",
-    favicon: "https://www.google.com/s2/favicons?domain=sheets.google.com&sz=16",
+    favicon:
+      "https://www.google.com/s2/favicons?domain=sheets.google.com&sz=16",
+    actionIcon: <FileSpreadsheet className="size-2.5" />,
   },
   {
     patterns: ["google drive", "g drive"],
     label: "Drive",
     color: "#4285F4",
     favicon: "https://www.google.com/s2/favicons?domain=drive.google.com&sz=16",
+    actionIcon: <HardDrive className="size-2.5" />,
   },
   {
     patterns: ["slack"],
@@ -129,16 +230,162 @@ const APP_DEFS: ReadonlyArray<AppDef> = [
   },
 ];
 
+// Return unique apps matched, letting the most specific pattern win.
+// We track which domains have already been matched so the specific Gmail action
+// chip doesn't appear alongside the generic Gmail chip.
 function detectApps(text: string): ReadonlyArray<AppDef> {
   if (!text.trim()) return [];
   const lower = text.toLowerCase();
   const found: AppDef[] = [];
+  const seenFavicons = new Set<string>();
+
   for (const def of APP_DEFS) {
+    if (seenFavicons.has(def.favicon)) continue;
     if (def.patterns.some((p) => lower.includes(p))) {
       found.push(def);
+      seenFavicons.add(def.favicon);
     }
   }
+
   return found;
+}
+
+// ─── Autocomplete suggestions ──────────────────────────────────────────────────
+
+interface AutocompleteSuggestion {
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly completion: string;
+  // One or more trigger substrings (EN + SV) — any match shows this suggestion
+  readonly triggers: ReadonlyArray<string>;
+}
+
+const AUTOCOMPLETE_SUGGESTIONS: ReadonlyArray<AutocompleteSuggestion> = [
+  // Gmail — Inbox
+  {
+    id: "gmail-inbox",
+    label: "Gmail Inbox",
+    description: "Öppna / Open inbox",
+    completion: "Show my Gmail inbox and unread emails",
+    triggers: [
+      "gmail inbox",
+      "gmail inkorg",
+      "inkorgen",
+      "läs mail",
+      "kolla mail",
+      "öppna gmail",
+      "visa mail",
+      "check gmail",
+      "check email",
+      "show inbox",
+      "my inbox",
+    ],
+  },
+  // Gmail — Send
+  {
+    id: "gmail-send",
+    label: "Send Gmail",
+    description: "Skicka / Send email",
+    completion: "Send an email via Gmail to ",
+    triggers: [
+      "skicka mail",
+      "skicka mejl",
+      "skicka e-post",
+      "maila",
+      "send email",
+      "send mail",
+      "compose email",
+      "write email",
+      "send via gmail",
+    ],
+  },
+  // Gmail — Search
+  {
+    id: "gmail-search",
+    label: "Search Gmail",
+    description: "Sök / Search emails",
+    completion: "Search my Gmail for ",
+    triggers: [
+      "sök mail",
+      "sök mejl",
+      "hitta mail",
+      "search gmail",
+      "search email",
+      "find email",
+    ],
+  },
+  // Gmail — Reply
+  {
+    id: "gmail-reply",
+    label: "Reply to Email",
+    description: "Svara / Reply",
+    completion: "Reply to the latest email from ",
+    triggers: [
+      "svara på mail",
+      "svara på mejl",
+      "reply to email",
+      "reply to gmail",
+      "respond to email",
+    ],
+  },
+  // Calendar
+  {
+    id: "calendar-check",
+    label: "Google Calendar",
+    description: "Visa / Show calendar",
+    completion: "Show my Google Calendar for ",
+    triggers: [
+      "kolla kalender",
+      "visa kalender",
+      "google calendar",
+      "my calendar",
+      "my meetings",
+      "check calendar",
+    ],
+  },
+  // Sheets
+  {
+    id: "sheets-open",
+    label: "Google Sheets",
+    description: "Öppna / Open spreadsheet",
+    completion: "Open Google Sheets and ",
+    triggers: ["google sheets", "kalkylark", "spreadsheet", "öppna sheets"],
+  },
+  // Slack — DM
+  {
+    id: "slack-message",
+    label: "Slack Message",
+    description: "Skicka Slack-meddelande",
+    completion: "Send a Slack message to ",
+    triggers: [
+      "slack message",
+      "skicka slack",
+      "dm on slack",
+      "slack dm",
+      "message on slack",
+    ],
+  },
+];
+
+function getAutocompleteSuggestions(
+  text: string,
+): ReadonlyArray<AutocompleteSuggestion> {
+  if (!text.trim() || text.length < 3) return [];
+  const lower = text.toLowerCase();
+  const results: AutocompleteSuggestion[] = [];
+
+  for (const s of AUTOCOMPLETE_SUGGESTIONS) {
+    if (
+      s.triggers.some(
+        (t) => lower.includes(t) || t.startsWith(lower.split(" ").pop() ?? ""),
+      )
+    ) {
+      results.push(s);
+    }
+  }
+
+  return results.slice(0, 4);
 }
 
 const AppChip: React.FC<{ app: AppDef }> = ({ app }) => (
@@ -158,9 +405,56 @@ const AppChip: React.FC<{ app: AppDef }> = ({ app }) => (
         (e.target as HTMLImageElement).style.display = "none";
       }}
     />
+    {app.actionIcon && <span className="opacity-80">{app.actionIcon}</span>}
     {app.label}
   </span>
 );
+
+const AutocompleteDropdown: React.FC<{
+  suggestions: ReadonlyArray<AutocompleteSuggestion>;
+  activeIndex: number;
+  onSelect: (s: AutocompleteSuggestion) => void;
+}> = ({ suggestions, activeIndex, onSelect }) => {
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div
+      className={cn(
+        "absolute bottom-full left-0 right-0 mb-1.5 z-50",
+        "rounded-xl border border-border bg-background shadow-lg overflow-hidden",
+      )}
+    >
+      {suggestions.map((s, i) => (
+        <button
+          key={s.id}
+          type="button"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onSelect(s);
+          }}
+          className={cn(
+            "w-full flex items-center gap-2 px-3 py-2 text-left transition-colors",
+            i === activeIndex ? "bg-secondary" : "hover:bg-secondary/50",
+          )}
+        >
+          <span className="text-xs font-medium text-foreground shrink-0">
+            {s.label}
+          </span>
+          <span className="text-[10px] text-muted-foreground ml-auto shrink-0">
+            {s.description}
+          </span>
+        </button>
+      ))}
+      <div className="px-3 py-1 border-t border-border/40 text-[9px] text-muted-foreground/50 flex items-center gap-1">
+        <span>↑↓ navigate</span>
+        <span>·</span>
+        <span>Enter / Tab to select</span>
+        <span>·</span>
+        <span>Esc dismiss</span>
+      </div>
+    </div>
+  );
+};
 
 const AttachmentChip: React.FC<{
   attachment: PromptAttachment;
@@ -199,10 +493,12 @@ const AddAttachmentPopover: React.FC<{
   const [urlName, setUrlName] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAddUrl = () => {
+  const handleAddUrl = (): void => {
     const url = urlValue.trim();
     if (!url) return;
-    const name = urlName.trim() || new URL(url.startsWith("http") ? url : `https://${url}`).hostname;
+    const name =
+      urlName.trim() ||
+      new URL(url.startsWith("http") ? url : `https://${url}`).hostname;
     onAdd({
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type: "url",
@@ -212,7 +508,7 @@ const AddAttachmentPopover: React.FC<{
     onClose();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
@@ -227,7 +523,12 @@ const AddAttachmentPopover: React.FC<{
       });
       onClose();
     };
-    if (file.type.startsWith("text/") || file.name.endsWith(".csv") || file.name.endsWith(".json") || file.name.endsWith(".md")) {
+    if (
+      file.type.startsWith("text/") ||
+      file.name.endsWith(".csv") ||
+      file.name.endsWith(".json") ||
+      file.name.endsWith(".md")
+    ) {
       reader.readAsText(file);
     } else {
       reader.readAsDataURL(file);
@@ -297,7 +598,12 @@ const AddAttachmentPopover: React.FC<{
         </div>
       ) : (
         <div className="space-y-2">
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileChange} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            className="hidden"
+            onChange={handleFileChange}
+          />
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
@@ -328,11 +634,60 @@ export const PromptInput: React.FC<PromptInputProps> = ({
   onRemoveAttachment,
 }) => {
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showAutocomplete, setShowAutocomplete] = useState(false);
+  const [autocompleteIndex, setAutocompleteIndex] = useState(0);
   const detectedApps = detectApps(value);
   const containerRef = useRef<HTMLDivElement>(null);
 
+  const autocompleteSuggestions = getAutocompleteSuggestions(value);
+
+  // Show autocomplete when there are suggestions and the user is actively editing
+  useEffect(() => {
+    if (autocompleteSuggestions.length > 0) {
+      setShowAutocomplete(true);
+      setAutocompleteIndex(0);
+    } else {
+      setShowAutocomplete(false);
+    }
+  }, [autocompleteSuggestions.length]);
+
+  const applyAutocomplete = useCallback(
+    (s: AutocompleteSuggestion) => {
+      onChange(s.completion);
+      setShowAutocomplete(false);
+    },
+    [onChange],
+  );
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
+      if (showAutocomplete && autocompleteSuggestions.length > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setAutocompleteIndex((i) => (i + 1) % autocompleteSuggestions.length);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setAutocompleteIndex((i) =>
+            i === 0 ? autocompleteSuggestions.length - 1 : i - 1,
+          );
+          return;
+        }
+        if (
+          e.key === "Tab" ||
+          (e.key === "Enter" && !e.shiftKey && autocompleteIndex >= 0)
+        ) {
+          e.preventDefault();
+          applyAutocomplete(autocompleteSuggestions[autocompleteIndex]);
+          return;
+        }
+        if (e.key === "Escape") {
+          setShowAutocomplete(false);
+          return;
+        }
+      }
+
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         onSubmit();
@@ -341,7 +696,13 @@ export const PromptInput: React.FC<PromptInputProps> = ({
         setShowAttachMenu(false);
       }
     },
-    [onSubmit],
+    [
+      onSubmit,
+      showAutocomplete,
+      autocompleteSuggestions,
+      autocompleteIndex,
+      applyAutocomplete,
+    ],
   );
 
   return (
@@ -381,6 +742,14 @@ export const PromptInput: React.FC<PromptInputProps> = ({
           <AddAttachmentPopover
             onAdd={onAddAttachment}
             onClose={() => setShowAttachMenu(false)}
+          />
+        )}
+
+        {showAutocomplete && !showAttachMenu && (
+          <AutocompleteDropdown
+            suggestions={autocompleteSuggestions}
+            activeIndex={autocompleteIndex}
+            onSelect={applyAutocomplete}
           />
         )}
 

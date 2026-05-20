@@ -25,6 +25,11 @@ interface PromptAttachment {
   readonly mimeType?: string;
 }
 
+interface ConversationTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
 interface AgentSessionRequest {
   readonly goal: string;
   readonly context?: {
@@ -33,6 +38,7 @@ interface AgentSessionRequest {
   };
   readonly mode: "single-tab" | "multi-tab";
   readonly attachments?: PromptAttachment[];
+  readonly conversationHistory?: ConversationTurn[];
 }
 
 interface AgentPreferences {
@@ -152,8 +158,7 @@ const sidebarAPI = {
   resolveAgentApproval: (
     id: string,
     decision: "approve-once" | "approve-all" | "skip" | "stop",
-  ) =>
-    electronAPI.ipcRenderer.invoke("agent:resolve-approval", id, decision),
+  ) => electronAPI.ipcRenderer.invoke("agent:resolve-approval", id, decision),
 
   getPendingAgentApproval: () =>
     electronAPI.ipcRenderer.invoke("agent:get-pending-approval"),
@@ -209,9 +214,8 @@ const sidebarAPI = {
       createdAt: number;
     }) => void,
   ) => {
-    electronAPI.ipcRenderer.on(
-      "agent:script-review-required",
-      (_, payload) => callback(payload),
+    electronAPI.ipcRenderer.on("agent:script-review-required", (_, payload) =>
+      callback(payload),
     );
   },
 
@@ -439,7 +443,9 @@ const sidebarAPI = {
   getAgentPreferences: (): Promise<AgentPreferences> =>
     electronAPI.ipcRenderer.invoke("settings:get-agent-preferences"),
 
-  setAgentPreferences: (prefs: Partial<AgentPreferences>): Promise<AgentPreferences> =>
+  setAgentPreferences: (
+    prefs: Partial<AgentPreferences>,
+  ): Promise<AgentPreferences> =>
     electronAPI.ipcRenderer.invoke("settings:set-agent-preferences", prefs),
 };
 

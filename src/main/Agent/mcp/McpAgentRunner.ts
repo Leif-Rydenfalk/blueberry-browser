@@ -32,6 +32,7 @@ import type {
   ActionResult,
   ExecuteScriptParams,
   CollectedBucketSummary,
+  ConversationTurn,
 } from "../types/AgentTypes";
 import {
   classifyActionByText,
@@ -188,7 +189,10 @@ export class McpAgentRunner {
 
   // ─── Main entry point ─────────────────────────────────────────────────────────
 
-  async run(goal: string): Promise<void> {
+  async run(
+    goal: string,
+    conversationHistory?: ReadonlyArray<ConversationTurn>,
+  ): Promise<void> {
     if (this.isRunningFlag) throw new Error("Agent is already running");
 
     this.isRunningFlag = true;
@@ -216,7 +220,11 @@ export class McpAgentRunner {
       const initialContext = await this.getPageContext();
 
       const system = this.buildSystemPrompt();
-      const initialPrompt = this.buildInitialPrompt(goal, initialContext);
+      const initialPrompt = this.buildInitialPrompt(
+        goal,
+        initialContext,
+        conversationHistory,
+      );
 
       await generateText({
         model,
@@ -270,7 +278,11 @@ export class McpAgentRunner {
           required: ["url"],
         }),
         execute: async ({ url }: { url: string }) =>
-          this.runTool({ type: "navigate", params: { url }, reasoning: `Navigate to ${url}` }),
+          this.runTool({
+            type: "navigate",
+            params: { url },
+            reasoning: `Navigate to ${url}`,
+          }),
       },
 
       click: {
@@ -280,48 +292,104 @@ export class McpAgentRunner {
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector" },
-            x: { type: "number", description: "X coordinate (alternative to selector)" },
-            y: { type: "number", description: "Y coordinate (alternative to selector)" },
-            frame: { type: "string", description: "CSS selector of iframe to target (optional)" },
+            x: {
+              type: "number",
+              description: "X coordinate (alternative to selector)",
+            },
+            y: {
+              type: "number",
+              description: "Y coordinate (alternative to selector)",
+            },
+            frame: {
+              type: "string",
+              description: "CSS selector of iframe to target (optional)",
+            },
           },
         }),
-        execute: async (params: { selector?: string; x?: number; y?: number; frame?: string }) =>
-          this.runTool({ type: "click", params, reasoning: `Click ${params.selector ?? `(${params.x},${params.y})`}` }),
+        execute: async (params: {
+          selector?: string;
+          x?: number;
+          y?: number;
+          frame?: string;
+        }) =>
+          this.runTool({
+            type: "click",
+            params,
+            reasoning: `Click ${params.selector ?? `(${params.x},${params.y})`}`,
+          }),
       },
 
       type: {
-        description: "Type text into an input field or contenteditable element.",
+        description:
+          "Type text into an input field or contenteditable element.",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            selector: { type: "string", description: "CSS selector of element to type into" },
+            selector: {
+              type: "string",
+              description: "CSS selector of element to type into",
+            },
             text: { type: "string", description: "Text to type" },
-            clearFirst: { type: "boolean", description: "Clear existing value before typing (default false)" },
-            x: { type: "number", description: "X coordinate (alternative to selector)" },
-            y: { type: "number", description: "Y coordinate (alternative to selector)" },
-            frame: { type: "string", description: "CSS selector of iframe (optional)" },
+            clearFirst: {
+              type: "boolean",
+              description: "Clear existing value before typing (default false)",
+            },
+            x: {
+              type: "number",
+              description: "X coordinate (alternative to selector)",
+            },
+            y: {
+              type: "number",
+              description: "Y coordinate (alternative to selector)",
+            },
+            frame: {
+              type: "string",
+              description: "CSS selector of iframe (optional)",
+            },
           },
           required: ["text"],
         }),
-        execute: async (params: { selector?: string; text: string; clearFirst?: boolean; x?: number; y?: number; frame?: string }) =>
-          this.runTool({ type: "type", params, reasoning: `Type "${params.text.substring(0, 40)}"` }),
+        execute: async (params: {
+          selector?: string;
+          text: string;
+          clearFirst?: boolean;
+          x?: number;
+          y?: number;
+          frame?: string;
+        }) =>
+          this.runTool({
+            type: "type",
+            params,
+            reasoning: `Type "${params.text.substring(0, 40)}"`,
+          }),
       },
 
       key: {
-        description: "Send a keyboard key (e.g. Enter, Tab, Escape, ArrowDown).",
+        description:
+          "Send a keyboard key (e.g. Enter, Tab, Escape, ArrowDown).",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            key: { type: "string", description: 'Key name: Enter, Tab, Escape, ArrowDown, Space, etc.' },
+            key: {
+              type: "string",
+              description:
+                "Key name: Enter, Tab, Escape, ArrowDown, Space, etc.",
+            },
             modifiers: {
               type: "array",
-              items: { type: "string", enum: ["control", "shift", "alt", "meta"] },
+              items: {
+                type: "string",
+                enum: ["control", "shift", "alt", "meta"],
+              },
               description: "Modifier keys to hold",
             },
           },
           required: ["key"],
         }),
-        execute: async (params: { key: string; modifiers?: Array<"control" | "shift" | "alt" | "meta"> }) =>
+        execute: async (params: {
+          key: string;
+          modifiers?: Array<"control" | "shift" | "alt" | "meta">;
+        }) =>
           this.runTool({ type: "key", params, reasoning: `Key ${params.key}` }),
       },
 
@@ -330,14 +398,32 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            direction: { type: "string", enum: ["up", "down", "to-element"], description: "Scroll direction" },
-            amount: { type: "number", description: "Pixels to scroll (default 500)" },
-            selector: { type: "string", description: "Scroll to this element (when direction=to-element)" },
+            direction: {
+              type: "string",
+              enum: ["up", "down", "to-element"],
+              description: "Scroll direction",
+            },
+            amount: {
+              type: "number",
+              description: "Pixels to scroll (default 500)",
+            },
+            selector: {
+              type: "string",
+              description: "Scroll to this element (when direction=to-element)",
+            },
           },
           required: ["direction"],
         }),
-        execute: async (params: { direction: "up" | "down" | "to-element"; amount?: number; selector?: string }) =>
-          this.runTool({ type: "scroll", params, reasoning: `Scroll ${params.direction}` }),
+        execute: async (params: {
+          direction: "up" | "down" | "to-element";
+          amount?: number;
+          selector?: string;
+        }) =>
+          this.runTool({
+            type: "scroll",
+            params,
+            reasoning: `Scroll ${params.direction}`,
+          }),
       },
 
       wait: {
@@ -345,55 +431,114 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            duration: { type: "number", description: "Wait time in ms (default 1000, max 10000)" },
+            duration: {
+              type: "number",
+              description: "Wait time in ms (default 1000, max 10000)",
+            },
           },
         }),
         execute: async (params: { duration?: number }) =>
-          this.runTool({ type: "wait", params, reasoning: `Wait ${params.duration ?? 1000}ms` }),
+          this.runTool({
+            type: "wait",
+            params,
+            reasoning: `Wait ${params.duration ?? 1000}ms`,
+          }),
       },
 
       waitForSelector: {
-        description: "Wait until a CSS selector appears in the DOM (useful after navigations or dynamic loads).",
+        description:
+          "Wait until a CSS selector appears in the DOM (useful after navigations or dynamic loads).",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            selector: { type: "string", description: "CSS selector to wait for" },
-            timeout: { type: "number", description: "Max wait time in ms (default 10000)" },
-            visible: { type: "boolean", description: "Also wait for element to be visible (non-zero size)" },
+            selector: {
+              type: "string",
+              description: "CSS selector to wait for",
+            },
+            timeout: {
+              type: "number",
+              description: "Max wait time in ms (default 10000)",
+            },
+            visible: {
+              type: "boolean",
+              description:
+                "Also wait for element to be visible (non-zero size)",
+            },
           },
           required: ["selector"],
         }),
-        execute: async (params: { selector: string; timeout?: number; visible?: boolean }) =>
-          this.runTool({ type: "waitForSelector", params, reasoning: `Wait for ${params.selector}` }),
+        execute: async (params: {
+          selector: string;
+          timeout?: number;
+          visible?: boolean;
+        }) =>
+          this.runTool({
+            type: "waitForSelector",
+            params,
+            reasoning: `Wait for ${params.selector}`,
+          }),
       },
 
       select: {
-        description: "Select an option from a <select> dropdown by value or visible text.",
+        description:
+          "Select an option from a <select> dropdown by value or visible text.",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            selector: { type: "string", description: "CSS selector of the <select> element" },
-            value: { type: "string", description: "Option value or text to select" },
-            frame: { type: "string", description: "CSS selector of iframe (optional)" },
+            selector: {
+              type: "string",
+              description: "CSS selector of the <select> element",
+            },
+            value: {
+              type: "string",
+              description: "Option value or text to select",
+            },
+            frame: {
+              type: "string",
+              description: "CSS selector of iframe (optional)",
+            },
           },
           required: ["selector", "value"],
         }),
-        execute: async (params: { selector: string; value: string; frame?: string }) =>
-          this.runTool({ type: "select", params, reasoning: `Select "${params.value}" in ${params.selector}` }),
+        execute: async (params: {
+          selector: string;
+          value: string;
+          frame?: string;
+        }) =>
+          this.runTool({
+            type: "select",
+            params,
+            reasoning: `Select "${params.value}" in ${params.selector}`,
+          }),
       },
 
       hover: {
-        description: "Hover over an element (triggers CSS :hover state and tooltips).",
+        description:
+          "Hover over an element (triggers CSS :hover state and tooltips).",
         inputSchema: jsonSchema({
           type: "object",
           properties: {
             selector: { type: "string", description: "CSS selector" },
-            x: { type: "number", description: "X coordinate (alternative to selector)" },
-            y: { type: "number", description: "Y coordinate (alternative to selector)" },
+            x: {
+              type: "number",
+              description: "X coordinate (alternative to selector)",
+            },
+            y: {
+              type: "number",
+              description: "Y coordinate (alternative to selector)",
+            },
           },
         }),
-        execute: async (params: { selector?: string; x?: number; y?: number }) =>
-          this.runTool({ type: "hover", params, reasoning: `Hover ${params.selector ?? `(${params.x},${params.y})`}` }),
+        execute: async (params: {
+          selector?: string;
+          x?: number;
+          y?: number;
+        }) =>
+          this.runTool({
+            type: "hover",
+            params,
+            reasoning: `Hover ${params.selector ?? `(${params.x},${params.y})`}`,
+          }),
       },
 
       back: {
@@ -407,7 +552,11 @@ export class McpAgentRunner {
         description: "Navigate forward in browser history.",
         inputSchema: jsonSchema({ type: "object", properties: {} }),
         execute: async () =>
-          this.runTool({ type: "forward", params: {}, reasoning: "Go forward" }),
+          this.runTool({
+            type: "forward",
+            params: {},
+            reasoning: "Go forward",
+          }),
       },
 
       newTab: {
@@ -415,11 +564,18 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            url: { type: "string", description: "URL to load in the new tab (optional)" },
+            url: {
+              type: "string",
+              description: "URL to load in the new tab (optional)",
+            },
           },
         }),
         execute: async (params: { url?: string }) =>
-          this.runTool({ type: "newTab", params, reasoning: `New tab${params.url ? ` → ${params.url}` : ""}` }),
+          this.runTool({
+            type: "newTab",
+            params,
+            reasoning: `New tab${params.url ? ` → ${params.url}` : ""}`,
+          }),
       },
 
       switchTab: {
@@ -432,7 +588,11 @@ export class McpAgentRunner {
           required: ["index"],
         }),
         execute: async (params: { index: number }) =>
-          this.runTool({ type: "switchTab", params, reasoning: `Switch to tab ${params.index}` }),
+          this.runTool({
+            type: "switchTab",
+            params,
+            reasoning: `Switch to tab ${params.index}`,
+          }),
       },
 
       closeTab: {
@@ -440,11 +600,18 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            index: { type: "number", description: "Tab index to close (default: active)" },
+            index: {
+              type: "number",
+              description: "Tab index to close (default: active)",
+            },
           },
         }),
         execute: async (params: { index?: number }) =>
-          this.runTool({ type: "closeTab", params, reasoning: `Close tab ${params.index ?? "active"}` }),
+          this.runTool({
+            type: "closeTab",
+            params,
+            reasoning: `Close tab ${params.index ?? "active"}`,
+          }),
       },
 
       screenshot: {
@@ -453,7 +620,11 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({ type: "object", properties: {} }),
         execute: async () => {
           this.stepNum++;
-          const action: AgentAction = { type: "screenshot", params: {}, reasoning: "Capture screenshot" };
+          const action: AgentAction = {
+            type: "screenshot",
+            params: {},
+            reasoning: "Capture screenshot",
+          };
 
           this.emitUpdate({
             step: this.stepNum,
@@ -469,7 +640,10 @@ export class McpAgentRunner {
             id: uuidv4(),
             timestamp: Date.now(),
             action,
-            result: { success: true, data: { screenshot: screenshotData ? "captured" : "failed" } },
+            result: {
+              success: true,
+              data: { screenshot: screenshotData ? "captured" : "failed" },
+            },
             screenshot: screenshotData ?? undefined,
           };
           this.steps.push(step);
@@ -502,19 +676,38 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            selector: { type: "string", description: "CSS selector for target elements" },
+            selector: {
+              type: "string",
+              description: "CSS selector for target elements",
+            },
             attribute: {
               type: "string",
               enum: ["text", "html", "value"],
-              description: 'What to extract: "text" (default), "html", or "value"',
+              description:
+                'What to extract: "text" (default), "html", or "value"',
             },
-            name: { type: "string", description: "Key name for the extracted data in the result" },
-            frame: { type: "string", description: "CSS selector of iframe (optional)" },
+            name: {
+              type: "string",
+              description: "Key name for the extracted data in the result",
+            },
+            frame: {
+              type: "string",
+              description: "CSS selector of iframe (optional)",
+            },
           },
           required: ["selector", "name"],
         }),
-        execute: async (params: { selector: string; attribute?: "text" | "html" | "value"; name: string; frame?: string }) =>
-          this.runTool({ type: "extract", params, reasoning: `Extract ${params.name} from ${params.selector}` }),
+        execute: async (params: {
+          selector: string;
+          attribute?: "text" | "html" | "value";
+          name: string;
+          frame?: string;
+        }) =>
+          this.runTool({
+            type: "extract",
+            params,
+            reasoning: `Extract ${params.name} from ${params.selector}`,
+          }),
       },
 
       extractSchema: {
@@ -525,7 +718,8 @@ export class McpAgentRunner {
           properties: {
             name: {
               type: "string",
-              description: "Bucket name (rows accumulate across calls with the same name — use this for pagination)",
+              description:
+                "Bucket name (rows accumulate across calls with the same name — use this for pagination)",
             },
             schema: {
               type: "object",
@@ -539,7 +733,8 @@ export class McpAgentRunner {
             },
             containerHint: {
               type: "string",
-              description: "Free-text hint to locate the repeating container on ambiguous pages",
+              description:
+                "Free-text hint to locate the repeating container on ambiguous pages",
             },
             frame: {
               type: "string",
@@ -584,17 +779,25 @@ export class McpAgentRunner {
           properties: {
             script: {
               type: "string",
-              description: "JS IIFE starting with (function(){...})(). No fetch, eval, or network calls.",
+              description:
+                "JS IIFE starting with (function(){...})(). No fetch, eval, or network calls.",
             },
             description: {
               type: "string",
               description: "Plain English: what the script does and why",
             },
-            name: { type: "string", description: "Optional label for the result" },
+            name: {
+              type: "string",
+              description: "Optional label for the result",
+            },
           },
           required: ["script", "description"],
         }),
-        execute: async (params: { script: string; description: string; name?: string }) => {
+        execute: async (params: {
+          script: string;
+          description: string;
+          name?: string;
+        }) => {
           this.stepNum++;
           const action: AgentAction = {
             type: "executeScript",
@@ -620,7 +823,12 @@ export class McpAgentRunner {
               error: "Script rejected by user",
               recoverable: true,
             };
-            this.steps.push({ id: uuidv4(), timestamp: Date.now(), action, result: rejectResult });
+            this.steps.push({
+              id: uuidv4(),
+              timestamp: Date.now(),
+              action,
+              result: rejectResult,
+            });
             this.emitUpdate({
               step: this.stepNum,
               totalSteps: this.config.maxSteps,
@@ -629,13 +837,19 @@ export class McpAgentRunner {
               result: rejectResult,
               sessionId: this.sessionId,
             });
-            return { success: false, error: "Script rejected by user — try a different approach." };
+            return {
+              success: false,
+              error: "Script rejected by user — try a different approach.",
+            };
           }
 
           const effectiveScript = resolution.approvedScript ?? params.script;
           const effectiveAction: AgentAction = {
             ...action,
-            params: { ...params, script: effectiveScript } as ExecuteScriptParams,
+            params: {
+              ...params,
+              script: effectiveScript,
+            } as ExecuteScriptParams,
           };
 
           const result = await this.strategy.executeAction(effectiveAction);
@@ -667,18 +881,29 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            reason: { type: "string", description: "Why approval is needed + what will happen next" },
+            reason: {
+              type: "string",
+              description: "Why approval is needed + what will happen next",
+            },
             previewData: {
               type: "object",
-              description: "Optional preview of the action (draft content, URLs, counts)",
+              description:
+                "Optional preview of the action (draft content, URLs, counts)",
               additionalProperties: true,
             },
           },
           required: ["reason"],
         }),
-        execute: async (params: { reason: string; previewData?: Record<string, unknown> }) => {
+        execute: async (params: {
+          reason: string;
+          previewData?: Record<string, unknown>;
+        }) => {
           this.stepNum++;
-          const action: AgentAction = { type: "waitForApproval", params, reasoning: params.reason.substring(0, 80) };
+          const action: AgentAction = {
+            type: "waitForApproval",
+            params,
+            reasoning: params.reason.substring(0, 80),
+          };
 
           this.emitUpdate({
             step: this.stepNum,
@@ -708,7 +933,12 @@ export class McpAgentRunner {
             success: true,
             data: { approved: decision !== "stop", decision },
           };
-          this.steps.push({ id: uuidv4(), timestamp: Date.now(), action, result });
+          this.steps.push({
+            id: uuidv4(),
+            timestamp: Date.now(),
+            action,
+            result,
+          });
 
           this.emitUpdate({
             step: this.stepNum,
@@ -734,7 +964,10 @@ export class McpAgentRunner {
         inputSchema: jsonSchema({
           type: "object",
           properties: {
-            answer: { type: "string", description: "Final answer / summary for the user" },
+            answer: {
+              type: "string",
+              description: "Final answer / summary for the user",
+            },
             bucket: {
               type: "string",
               description:
@@ -747,7 +980,10 @@ export class McpAgentRunner {
           this.stepNum++;
 
           // Enrich answer with collected CSV if any
-          const enrichedAnswer = this.enrichFinishAnswer(params.answer, params.bucket);
+          const enrichedAnswer = this.enrichFinishAnswer(
+            params.answer,
+            params.bucket,
+          );
           this.finishAnswer = enrichedAnswer;
 
           const action: AgentAction = {
@@ -755,9 +991,17 @@ export class McpAgentRunner {
             params: { ...params, answer: enrichedAnswer },
             reasoning: "Task complete",
           };
-          const result: ActionResult = { success: true, data: { completed: true, answer: enrichedAnswer } };
+          const result: ActionResult = {
+            success: true,
+            data: { completed: true, answer: enrichedAnswer },
+          };
 
-          this.steps.push({ id: uuidv4(), timestamp: Date.now(), action, result });
+          this.steps.push({
+            id: uuidv4(),
+            timestamp: Date.now(),
+            action,
+            result,
+          });
           this.emitFinishUpdate(enrichedAnswer, "success");
 
           // Abort the generateText loop cleanly
@@ -786,8 +1030,16 @@ export class McpAgentRunner {
     const gate = await this.maybeRequestApproval(action);
 
     if (gate === "stop") {
-      const stopResult: ActionResult = { success: true, data: { stopped: true } };
-      this.steps.push({ id: uuidv4(), timestamp: Date.now(), action, result: stopResult });
+      const stopResult: ActionResult = {
+        success: true,
+        data: { stopped: true },
+      };
+      this.steps.push({
+        id: uuidv4(),
+        timestamp: Date.now(),
+        action,
+        result: stopResult,
+      });
       this.emitUpdate({
         step: this.stepNum,
         totalSteps: this.config.maxSteps,
@@ -801,8 +1053,16 @@ export class McpAgentRunner {
     }
 
     if (gate === "skip") {
-      const skipResult: ActionResult = { success: true, data: { skipped: true } };
-      this.steps.push({ id: uuidv4(), timestamp: Date.now(), action, result: skipResult });
+      const skipResult: ActionResult = {
+        success: true,
+        data: { skipped: true },
+      };
+      this.steps.push({
+        id: uuidv4(),
+        timestamp: Date.now(),
+        action,
+        result: skipResult,
+      });
       this.emitUpdate({
         step: this.stepNum,
         totalSteps: this.config.maxSteps,
@@ -822,7 +1082,16 @@ export class McpAgentRunner {
     this.recordExtracted(action, result);
 
     // Capture screenshot for UI display (not sent to Claude)
-    const skipScreenshot = new Set(["extract", "extractSchema", "wait", "waitForSelector", "select", "finish", "waitForApproval", "executeScript"]);
+    const skipScreenshot = new Set([
+      "extract",
+      "extractSchema",
+      "wait",
+      "waitForSelector",
+      "select",
+      "finish",
+      "waitForApproval",
+      "executeScript",
+    ]);
     const screenshot = skipScreenshot.has(action.type)
       ? null
       : await this.strategy.captureScreenshot().catch(() => null);
@@ -994,18 +1263,27 @@ export class McpAgentRunner {
 
   private normalizeRow(row: unknown): Record<string, unknown> | null {
     if (row === null || row === undefined) return null;
-    if (typeof row === "object" && !Array.isArray(row)) return row as Record<string, unknown>;
+    if (typeof row === "object" && !Array.isArray(row))
+      return row as Record<string, unknown>;
     return { value: row };
   }
 
   private rowKey(row: Record<string, unknown>): string {
     return Object.keys(row)
       .sort()
-      .map((k) => `${k}=${String(row[k] ?? "").trim().toLowerCase()}`)
+      .map(
+        (k) =>
+          `${k}=${String(row[k] ?? "")
+            .trim()
+            .toLowerCase()}`,
+      )
       .join("|");
   }
 
-  private enrichFinishAnswer(narrative: string, explicitBucket?: string): string {
+  private enrichFinishAnswer(
+    narrative: string,
+    explicitBucket?: string,
+  ): string {
     if (this.collected.size === 0) return narrative;
 
     const canonicalName = this.pickCanonicalBucket(explicitBucket);
@@ -1110,7 +1388,14 @@ export class McpAgentRunner {
     };
   }
 
-  private wrapResult(result: ActionResult, ctx: { currentUrl: string | null; pageText: string | null; interactiveElements: string | null }): ToolResult {
+  private wrapResult(
+    result: ActionResult,
+    ctx: {
+      currentUrl: string | null;
+      pageText: string | null;
+      interactiveElements: string | null;
+    },
+  ): ToolResult {
     return {
       success: result.success,
       data: result.success ? result.data : undefined,
@@ -1125,6 +1410,27 @@ export class McpAgentRunner {
 
   private buildSystemPrompt(): string {
     return `You are Blueberry AI, a browser automation agent. You drive a real Electron browser using the browser tools available to you.
+
+────────────────────────────────────────────────────────────
+LANGUAGE — SVENSKA / ENGLISH
+────────────────────────────────────────────────────────────
+You understand and act on instructions in both Swedish and English. Common Swedish terms:
+- "skicka" / "skicka iväg" = send
+- "skicka mail" / "skicka mejl" / "maila" = send email
+- "till" = to (recipient)
+- "öppna" / "öppna upp" = open
+- "läs" / "kolla" = read / check
+- "sök" / "hitta" = search / find
+- "svara" / "svara på" = reply / reply to
+- "istället" = instead
+- "isåfall" / "i så fall" = in that case
+- "gmail inkorg" / "inkorgen" = gmail inbox
+- "det" / "den" = it / that (refers to something mentioned earlier)
+- "bifoga" = attach
+- "ämne" = subject
+- "mottagare" = recipient
+
+When the user says "skicka det till X" or "send it to X" — "det/it" refers to what was discussed earlier in the conversation (e.g. a previously drafted message, a found piece of information). Use the conversation history to resolve what "it" refers to.
 
 ────────────────────────────────────────────────────────────
 INTERACTION PRIORITY — CRITICAL
@@ -1144,13 +1450,35 @@ THIRD-PARTY INTEGRATIONS — HOW TO USE EACH APP
 ────────────────────────────────────────────────────────────
 The user may ask you to work with these apps. Navigate to them like a human would. If you hit a sign-in wall, use waitForApproval to ask the user to sign in, then continue.
 
-GMAIL (mail.google.com)
+GMAIL — INBOX (mail.google.com/inbox)
 - Navigate to https://mail.google.com to open the inbox.
 - Click a thread subject to open it. Use the back button or "← Back to Inbox" link to return.
-- To compose: click the "Compose" button (bottom-left pencil icon), fill in To/Subject/Body fields by clicking each, then click Send. Always waitForApproval before sending.
 - To search: click the search bar at the top, type query, press Enter.
-- To reply: open a thread, scroll to the bottom, click "Reply", type in the compose area, then Send (with approval).
 - Labels/filters are in the left sidebar; click to filter.
+- Triggered by: "gmail inbox", "gmail inkorg", "visa mail", "läs mail", "kolla mail", "check email", "show inbox".
+
+GMAIL — SEND EMAIL (mail.google.com/compose) ⚠ MANDATORY COMPLETION
+When the user instructs you to SEND an email ("skicka mail till X", "send email to X", "maila X", "send it via Gmail", "skicka det till X på gmail"):
+1. Navigate to https://mail.google.com
+2. Click the "Compose" button (pencil/pen icon, bottom-left)
+3. Click the "To" field and type the recipient's email address
+4. Click the "Subject" field and type a subject
+5. Click the body area and type the full message
+6. Use waitForApproval with a complete preview (to, subject, body) — let the user review
+7. After the user APPROVES: click the "Send" button
+8. Wait for confirmation that the email was sent ("Message sent" toast / email appears in Sent folder)
+9. Navigate to Sent to verify, then call finish
+The task is NOT COMPLETE until the email is in the Sent folder. "Drafted" ≠ "Sent". Never call finish after only drafting. You MUST click Send after approval.
+
+GMAIL — REPLY
+- Open the thread, scroll to the bottom, click "Reply"
+- Type in the compose area
+- Use waitForApproval with the reply preview before sending
+- After approval: click Send, verify sent, then finish
+
+GMAIL — SEARCH
+- Click the search bar at the top of Gmail, type query, press Enter
+- Results appear in the thread list below the search bar
 
 GOOGLE CALENDAR (calendar.google.com)
 - Navigate to https://calendar.google.com for the calendar view.
@@ -1254,21 +1582,44 @@ COMPLETION — MANDATORY
 ────────────────────────────────────────────────────────────
 You MUST call the finish tool to end every session, without exception. Never generate a plain text response as your final action — always use a tool call. If you have an answer ready, call finish(answer=...) immediately. If you hit a wall or run out of ideas, call finish and honestly describe what happened.
 
+EMAIL SEND TASKS — EXTRA RULE: If the user's task requires sending an email, you are NOT done until the email has been actually sent (clicked Send and confirmed). Do not call finish after drafting. Call finish only after you see "Message sent" or the email appears in Sent.
+
 Always use browser evidence only — never answer from training knowledge when the task involves live web data.`;
   }
 
   private buildInitialPrompt(
     goal: string,
-    ctx: { currentUrl: string | null; pageText: string | null; interactiveElements: string | null },
+    ctx: {
+      currentUrl: string | null;
+      pageText: string | null;
+      interactiveElements: string | null;
+    },
+    history?: ReadonlyArray<ConversationTurn>,
   ): string {
-    const parts: string[] = [`Task: ${goal}`];
+    const parts: string[] = [];
+
+    if (history && history.length > 0) {
+      parts.push(
+        "Previous conversation in this session (for context — use this to understand references like 'it', 'that', 'the email', etc.):",
+      );
+      for (const turn of history) {
+        const role = turn.role === "user" ? "User" : "Assistant";
+        parts.push(`${role}: ${turn.content}`);
+      }
+      parts.push("---");
+      parts.push("Current task:");
+    }
+
+    parts.push(`Task: ${goal}`);
 
     if (ctx.currentUrl) {
       parts.push(`Current URL: ${ctx.currentUrl}`);
     }
 
     if (ctx.interactiveElements) {
-      parts.push(`\nInteractive elements (use these exact selectors):\n${ctx.interactiveElements}`);
+      parts.push(
+        `\nInteractive elements (use these exact selectors):\n${ctx.interactiveElements}`,
+      );
     }
 
     if (ctx.pageText) {
@@ -1287,7 +1638,10 @@ Always use browser evidence only — never answer from training knowledge when t
     this.onUpdate?.(update);
   }
 
-  private emitFinishUpdate(answer: string, status: AgentStreamUpdate["status"]): void {
+  private emitFinishUpdate(
+    answer: string,
+    status: AgentStreamUpdate["status"],
+  ): void {
     this.emitUpdate({
       step: this.stepNum,
       totalSteps: this.config.maxSteps,
@@ -1308,7 +1662,8 @@ Always use browser evidence only — never answer from training knowledge when t
 function stringifyCell(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "string") return value;
-  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (typeof value === "number" || typeof value === "boolean")
+    return String(value);
   try {
     return JSON.stringify(value);
   } catch {

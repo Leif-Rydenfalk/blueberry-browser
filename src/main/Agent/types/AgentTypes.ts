@@ -110,11 +110,7 @@ export interface ExecuteScriptParams {
   readonly name?: string;
 }
 
-export type ApprovalDecision =
-  | "approve-once"
-  | "approve-all"
-  | "skip"
-  | "stop";
+export type ApprovalDecision = "approve-once" | "approve-all" | "skip" | "stop";
 
 // Pre-execution gate. The agent has CHOSEN an action — we surface it to the
 // human before it actually runs and let them veto / batch-approve.
@@ -308,6 +304,11 @@ export interface AgentConfig {
   readonly alwaysAllowScripts?: boolean;
 }
 
+export interface ConversationTurn {
+  readonly role: "user" | "assistant";
+  readonly content: string;
+}
+
 export interface AgentSessionRequest {
   readonly goal: string;
   readonly context?: {
@@ -316,6 +317,7 @@ export interface AgentSessionRequest {
   };
   readonly mode: "single-tab" | "multi-tab";
   readonly attachments?: ReadonlyArray<PromptAttachment>;
+  readonly conversationHistory?: ReadonlyArray<ConversationTurn>;
 }
 
 export interface AgentSession {
@@ -361,4 +363,3 @@ export interface AgentStreamUpdate {
   readonly subgoals?: ReadonlyArray<Subgoal>;
   readonly acceptanceCriteria?: string;
 }
-

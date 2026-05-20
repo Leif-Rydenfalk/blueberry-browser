@@ -179,7 +179,7 @@ export class AgentOrchestrator {
     );
 
     // Start the agent loop
-    runner.run(goal).catch((error) => {
+    runner.run(goal, request.conversationHistory).catch((error) => {
       console.error("[AgentOrchestrator] Runner failed:", error);
       const sess = this.sessions.get(sessionId);
       if (sess) {
