@@ -5,12 +5,15 @@ import {
   type LanguageModel,
   type CoreMessage,
 } from "ai";
-import { openai } from "@ai-sdk/openai";
-import { anthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createAnthropic } from "@ai-sdk/anthropic";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
 import type { TokenUsageStore, TokenUsageTotals } from "./TokenUsageStore";
+import type { SettingsStore } from "./Settings/SettingsStore";
+import type { ApiKeyProvider } from "./Settings/SettingsTypes";
 
 dotenv.config({ path: join(__dirname, "../../.env") });
 
@@ -24,7 +27,7 @@ interface StreamChunk {
   isComplete: boolean;
 }
 
-export type LLMProvider = "openai" | "anthropic";
+export type LLMProvider = "openai" | "anthropic" | "google";
 
 export interface ModelOption {
   readonly provider: LLMProvider;
@@ -59,6 +62,7 @@ export class LLMClient {
   private modelOptions: ModelOption[] | null = null;
   private modelOptionsFetchedAt = 0;
   private usageStore: TokenUsageStore | null = null;
+  private settingsStore: SettingsStore | null = null;
 
   constructor(webContents: WebContents) {
     this.webContents = webContents;
@@ -66,6 +70,40 @@ export class LLMClient {
     this.modelName = this.getModelName();
     this.model = this.initializeModel(this.provider, this.modelName);
     this.logInitializationStatus();
+  }
+
+  setSettingsStore(store: SettingsStore): void {
+    this.settingsStore = store;
+    // Replay last-used selection if present and we can configure it.
+    const last = store.getLastModel();
+    if (last) {
+      const nextModel = this.initializeModel(last.provider, last.model);
+      if (nextModel) {
+        this.provider = last.provider;
+        this.modelName = last.model;
+        this.model = nextModel;
+        this.modelOptions = null;
+        this.logInitializationStatus();
+        return;
+      }
+    }
+    // Otherwise just re-evaluate the current selection in case a UI-saved key
+    // now makes it work.
+    this.model = this.initializeModel(this.provider, this.modelName);
+    this.logInitializationStatus();
+  }
+
+  // Called by SettingsIpcHandler after the user pastes / clears a key. The
+  // current selection is re-evaluated; the picker UI refreshes via getModelOptions.
+  async refreshFromSettings(): Promise<void> {
+    this.model = this.initializeModel(this.provider, this.modelName);
+    this.modelOptions = null;
+    this.modelOptionsFetchedAt = 0;
+    this.logInitializationStatus();
+    // Eagerly refresh model options so the picker reflects the new key state.
+    void this.getModelOptions(true).catch((err) => {
+      console.error("[LLMClient] refreshFromSettings: model fetch failed:", err);
+    });
   }
 
   setUsageStore(store: TokenUsageStore): void {
@@ -89,6 +127,7 @@ export class LLMClient {
   private getProvider(): LLMProvider {
     const provider = process.env.LLM_PROVIDER?.toLowerCase();
     if (provider === "anthropic") return "anthropic";
+    if (provider === "google" || provider === "gemini") return "google";
     return "openai";
   }
 
@@ -105,20 +144,33 @@ export class LLMClient {
 
     switch (provider) {
       case "anthropic":
-        return anthropic(modelName);
+        return createAnthropic({ apiKey })(modelName);
       case "openai":
-        return openai(modelName);
+        return createOpenAI({ apiKey })(modelName);
+      case "google":
+        return createGoogleGenerativeAI({ apiKey })(modelName);
       default:
         return null;
     }
   }
 
+  // Resolution order: UI-saved key (SettingsStore) wins over .env. This means
+  // a desktop user who pastes a key in the settings modal can confidently
+  // override whatever was in the dev .env file.
   private getApiKey(provider: LLMProvider = this.provider): string | undefined {
+    const stored = this.settingsStore?.getApiKey(provider as ApiKeyProvider);
+    if (stored) return stored;
     switch (provider) {
       case "anthropic":
         return process.env.ANTHROPIC_API_KEY;
       case "openai":
         return process.env.OPENAI_API_KEY;
+      case "google":
+        return (
+          process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
+          process.env.GOOGLE_API_KEY ??
+          process.env.GEMINI_API_KEY
+        );
       default:
         return undefined;
     }
@@ -137,6 +189,7 @@ export class LLMClient {
     const results = await Promise.all([
       this.fetchOpenAIModels(),
       this.fetchAnthropicModels(),
+      this.fetchGoogleModels(),
     ]);
 
     this.modelOptions = results.flat();
@@ -183,19 +236,41 @@ export class LLMClient {
   private applyModelSelection(provider: LLMProvider, modelName: string): void {
     const nextModel = this.initializeModel(provider, modelName);
     if (!nextModel) {
-      const keyName =
-        provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
-      throw new Error(`${keyName} is not configured.`);
+      throw new Error(`${this.getApiKeyName(provider)} is not configured.`);
     }
 
     this.provider = provider;
     this.modelName = modelName;
     this.model = nextModel;
+    this.settingsStore?.setLastModel({
+      provider: provider as ApiKeyProvider,
+      model: modelName,
+    });
     this.logInitializationStatus();
   }
 
   private getProviderLabel(provider: LLMProvider): string {
-    return provider === "anthropic" ? "Claude" : "OpenAI";
+    switch (provider) {
+      case "anthropic":
+        return "Claude";
+      case "google":
+        return "Gemini";
+      case "openai":
+      default:
+        return "OpenAI";
+    }
+  }
+
+  private getApiKeyName(provider: LLMProvider): string {
+    switch (provider) {
+      case "anthropic":
+        return "ANTHROPIC_API_KEY";
+      case "google":
+        return "GOOGLE_GENERATIVE_AI_API_KEY";
+      case "openai":
+      default:
+        return "OPENAI_API_KEY";
+    }
   }
 
   private getModelLabel(provider: LLMProvider, modelName: string): string {
@@ -257,6 +332,82 @@ export class LLMClient {
       console.error("[LLMClient] OpenAI model list failed:", error);
       return [];
     }
+  }
+
+  private async fetchGoogleModels(): Promise<ModelOption[]> {
+    const apiKey = this.getApiKey("google");
+    if (!apiKey) return [];
+
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        console.error(
+          `[LLMClient] Google model list failed: ${response.status} ${response.statusText}`,
+        );
+        return [];
+      }
+
+      const payload = (await response.json()) as {
+        models?: Array<{
+          name: string;
+          displayName?: string;
+          supportedGenerationMethods?: string[];
+        }>;
+      };
+      return (payload.models || [])
+        .filter((model) => this.isGoogleGenerationModel(model))
+        .map((model) => ({
+          id: stripGoogleModelPrefix(model.name),
+          displayName: model.displayName,
+        }))
+        .sort((a, b) => this.compareGoogleModels(a, b))
+        .map((model) => ({
+          provider: "google" as const,
+          model: model.id,
+          label: `Gemini · ${model.displayName || model.id}`,
+        }));
+    } catch (error) {
+      console.error("[LLMClient] Google model list failed:", error);
+      return [];
+    }
+  }
+
+  private isGoogleGenerationModel(model: {
+    name: string;
+    supportedGenerationMethods?: string[];
+  }): boolean {
+    const id = stripGoogleModelPrefix(model.name).toLowerCase();
+    if (!id.startsWith("gemini")) return false;
+    // Skip embeddings, image-only, etc. — keep models that can do text generation.
+    const methods = model.supportedGenerationMethods ?? [];
+    if (methods.length > 0 && !methods.includes("generateContent")) return false;
+    const excluded = ["embedding", "aqa", "vision-tuning"];
+    return !excluded.some((term) => id.includes(term));
+  }
+
+  private compareGoogleModels(
+    a: { id: string; displayName?: string },
+    b: { id: string; displayName?: string },
+  ): number {
+    return this.scoreGoogleModel(b.id) - this.scoreGoogleModel(a.id);
+  }
+
+  private scoreGoogleModel(modelId: string): number {
+    const id = modelId.toLowerCase();
+    let score = this.extractGoogleModelVersion(id) * 100;
+    if (id.includes("pro")) score += 30;
+    if (id.includes("flash")) score += 20;
+    if (id.includes("lite")) score -= 10;
+    if (id.includes("preview")) score -= 5;
+    if (id.includes("exp")) score -= 8;
+    return score;
+  }
+
+  private extractGoogleModelVersion(value: string): number {
+    const match = value.match(/gemini-(\d+(?:[-.]\d+)?)/);
+    if (!match) return 0;
+    return this.parseModelVersion(match[1]);
   }
 
   private async fetchAnthropicModels(): Promise<ModelOption[]> {
@@ -388,11 +539,9 @@ export class LLMClient {
         `✅ LLM Client initialized with ${this.provider} provider using model: ${this.modelName}`,
       );
     } else {
-      const keyName =
-        this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
       console.error(
-        `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-          `Please add your API key to the .env file in the project root.`,
+        `❌ LLM Client initialization failed: ${this.getApiKeyName(this.provider)} not configured.\n` +
+          `Add it in Blueberry's Settings panel, or set it in the .env file.`,
       );
     }
   }
@@ -427,7 +576,7 @@ export class LLMClient {
       if (!this.model) {
         this.sendErrorMessage(
           request.messageId,
-          "LLM service is not configured. Please add an OpenAI or Anthropic API key to the .env file.",
+          "LLM service is not configured. Open the API key settings in the sidebar and paste a key for OpenAI, Anthropic, or Google.",
         );
         return;
       }
@@ -946,7 +1095,7 @@ export class LLMClient {
     const message = error.message.toLowerCase();
 
     if (message.includes("401") || message.includes("unauthorized")) {
-      return "Authentication error: Please check your API key in the .env file.";
+      return "Authentication error: Please check your API key in Blueberry's settings (or the .env file).";
     }
 
     if (message.includes("429") || message.includes("rate limit")) {
@@ -1026,4 +1175,10 @@ export class LLMClient {
       isComplete: chunk.isComplete,
     });
   }
+}
+
+function stripGoogleModelPrefix(name: string): string {
+  // The Generative Language API returns `models/gemini-...`; the SDK wants
+  // the bare id.
+  return name.startsWith("models/") ? name.slice("models/".length) : name;
 }

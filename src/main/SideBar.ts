@@ -3,6 +3,7 @@ import { BaseWindow, WebContentsView } from "electron";
 import { join } from "path";
 import { LLMClient } from "./LLMClient";
 import { TokenUsageStore } from "./TokenUsageStore";
+import { SettingsStore } from "./Settings/SettingsStore";
 
 export const SIDEBAR_MIN_WIDTH = 280;
 export const SIDEBAR_MAX_WIDTH = 900;
@@ -12,6 +13,7 @@ export class SideBar {
   private webContentsView: WebContentsView;
   private baseWindow: BaseWindow;
   private llmClient: LLMClient;
+  private settingsStore: SettingsStore;
   private isVisible: boolean = true;
   private width: number = SIDEBAR_DEFAULT_WIDTH;
 
@@ -21,8 +23,14 @@ export class SideBar {
     baseWindow.contentView.addChildView(this.webContentsView);
     this.setupBounds();
 
+    this.settingsStore = new SettingsStore();
     this.llmClient = new LLMClient(this.webContentsView.webContents);
     this.llmClient.setUsageStore(new TokenUsageStore());
+    this.llmClient.setSettingsStore(this.settingsStore);
+  }
+
+  get settings(): SettingsStore {
+    return this.settingsStore;
   }
 
   // Effective width — zero when hidden so callers laying out tabs don't have to

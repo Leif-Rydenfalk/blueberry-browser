@@ -408,6 +408,19 @@ const sidebarAPI = {
   removeTokenUsageUpdatedListener: () => {
     electronAPI.ipcRenderer.removeAllListeners("token-usage-updated");
   },
+
+  // API key settings (persisted via Electron safeStorage when available)
+  getApiKeyStatuses: () =>
+    electronAPI.ipcRenderer.invoke("settings:get-api-key-status"),
+
+  setApiKey: (provider: "openai" | "anthropic" | "google", key: string) =>
+    electronAPI.ipcRenderer.invoke("settings:set-api-key", provider, key),
+
+  clearApiKey: (provider: "openai" | "anthropic" | "google") =>
+    electronAPI.ipcRenderer.invoke("settings:clear-api-key", provider),
+
+  testApiKey: (provider: "openai" | "anthropic" | "google", key: string) =>
+    electronAPI.ipcRenderer.invoke("settings:test-api-key", provider, key),
 };
 
 if (process.contextIsolated) {

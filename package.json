@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.79",
+    "@ai-sdk/google": "^2.0.73",
     "@ai-sdk/openai": "^2.0.30",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",

@@ -87,9 +87,25 @@ interface ApprovalRequest {
 }
 
 interface ModelOption {
-  readonly provider: "openai" | "anthropic";
+  readonly provider: "openai" | "anthropic" | "google";
   readonly model: string;
   readonly label: string;
+}
+
+type ApiKeyProvider = "openai" | "anthropic" | "google";
+
+interface ApiKeyStatus {
+  readonly provider: ApiKeyProvider;
+  readonly configured: boolean;
+  readonly source: "ui" | "env" | "none";
+  readonly preview: string | null;
+  readonly updatedAt: number | null;
+}
+
+interface ApiKeyTestResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  readonly modelCount?: number;
 }
 
 interface RecordingState {
@@ -279,6 +295,19 @@ interface SidebarAPI {
     callback: (event: McpCompletionEvent) => void,
   ) => void;
   removeMcpListeners: () => void;
+  // API key settings
+  getApiKeyStatuses: () => Promise<ReadonlyArray<ApiKeyStatus>>;
+  setApiKey: (
+    provider: ApiKeyProvider,
+    key: string,
+  ) => Promise<ReadonlyArray<ApiKeyStatus>>;
+  clearApiKey: (
+    provider: ApiKeyProvider,
+  ) => Promise<ReadonlyArray<ApiKeyStatus>>;
+  testApiKey: (
+    provider: ApiKeyProvider,
+    key: string,
+  ) => Promise<ApiKeyTestResult>;
 }
 
 interface McpStatus {

@@ -20,15 +20,17 @@ import {
   Search,
   Flag,
   Send,
+  KeyRound,
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
 import { ApprovalSheet } from "./ApprovalSheet";
 import { ScriptReviewSheet } from "./ScriptReviewSheet";
 import { CsvViewer } from "./CsvViewer";
+import { ApiKeyManagerModal } from "./ApiKeyManagerModal";
 
 interface ModelOption {
-  readonly provider: "openai" | "anthropic";
+  readonly provider: "openai" | "anthropic" | "google";
   readonly model: string;
   readonly label: string;
 }
@@ -247,6 +249,7 @@ export const AgentPanel: React.FC = () => {
   );
   const [modelError, setModelError] = useState<string | null>(null);
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -310,7 +313,13 @@ export const AgentPanel: React.FC = () => {
 
   const handleModelChange = async (value: string) => {
     const [provider, model] = value.split(":");
-    if ((provider !== "openai" && provider !== "anthropic") || !model) return;
+    if (
+      (provider !== "openai" &&
+        provider !== "anthropic" &&
+        provider !== "google") ||
+      !model
+    )
+      return;
 
     setModelError(null);
     try {
@@ -323,6 +332,20 @@ export const AgentPanel: React.FC = () => {
       const message =
         error instanceof Error ? error.message : "Failed to switch model";
       setModelError(message);
+    }
+  };
+
+  const refreshModelOptions = async (): Promise<void> => {
+    try {
+      const [options, selection] = await Promise.all([
+        window.sidebarAPI.getModelOptions(),
+        window.sidebarAPI.getModelSelection(),
+      ]);
+      setModelOptions(options);
+      setModelSelection(selection);
+      setModelError(null);
+    } catch (error) {
+      console.error("Failed to refresh model settings:", error);
     }
   };
 
@@ -370,10 +393,10 @@ export const AgentPanel: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="flex items-center px-4 pb-2.5">
+        <div className="flex items-center gap-1.5 px-4 pb-2.5">
           <div
             className={cn(
-              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg max-w-full",
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-lg flex-1 min-w-0",
               "bg-secondary/50 hover:bg-secondary transition-colors",
               "border border-border/40",
               (isRunning || modelOptions.length === 0) &&
@@ -394,6 +417,9 @@ export const AgentPanel: React.FC = () => {
               )}
               title={modelError || modelSelection?.label || "Model"}
             >
+              {modelOptions.length === 0 && (
+                <option value="">No models — add an API key →</option>
+              )}
               {modelOptions.map((option) => (
                 <option
                   key={`${option.provider}:${option.model}`}
@@ -404,6 +430,18 @@ export const AgentPanel: React.FC = () => {
               ))}
             </select>
           </div>
+          <button
+            type="button"
+            onClick={() => setApiKeyModalOpen(true)}
+            title="Manage API keys"
+            className={cn(
+              "flex items-center justify-center w-7 h-7 rounded-lg shrink-0",
+              "bg-secondary/50 hover:bg-secondary border border-border/40",
+              "text-muted-foreground hover:text-foreground transition-colors",
+            )}
+          >
+            <KeyRound className="size-3.5" />
+          </button>
         </div>
       </div>
       {modelError && (
@@ -542,6 +580,14 @@ export const AgentPanel: React.FC = () => {
           onResolve={resolveScriptReview}
         />
       )}
+
+      <ApiKeyManagerModal
+        open={apiKeyModalOpen}
+        onClose={() => setApiKeyModalOpen(false)}
+        onChanged={() => {
+          void refreshModelOptions();
+        }}
+      />
     </div>
   );
 };

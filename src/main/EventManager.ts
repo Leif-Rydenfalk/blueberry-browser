@@ -9,6 +9,11 @@ import {
 import { McpHandler } from "./Mcp/McpHandler";
 import { McpServer, readMcpOptionsFromEnv } from "./Mcp/McpServer";
 import { MCP_CHANNELS } from "./Mcp/McpTypes";
+import { SettingsIpcHandler } from "./Settings/SettingsIpcHandler";
+import {
+  SETTINGS_CHANNELS,
+  type ApiKeyProvider,
+} from "./Settings/SettingsTypes";
 
 export class EventManager {
   private mainWindow: Window;
@@ -16,6 +21,7 @@ export class EventManager {
   private workflowHandler: WorkflowIpcHandler;
   private mcpHandler: McpHandler;
   private mcpServer: McpServer;
+  private settingsHandler: SettingsIpcHandler;
 
   constructor(mainWindow: Window) {
     this.mainWindow = mainWindow;
@@ -31,10 +37,17 @@ export class EventManager {
       readMcpOptionsFromEnv(process.env.npm_package_version ?? "1.0.0"),
     );
 
+    // API key + last-model settings (encrypted via safeStorage).
+    this.settingsHandler = new SettingsIpcHandler(
+      mainWindow.sidebar.settings,
+      mainWindow.sidebar.client,
+    );
+
     this.setupEventHandlers();
     this.setupAgentHandlers();
     this.setupWorkflowHandlers();
     this.setupMcpHandlers();
+    this.setupSettingsHandlers();
 
     // Kick off the MCP server in the background; failures are logged inside.
     void this.mcpServer.start().catch((err) => {
@@ -274,6 +287,33 @@ export class EventManager {
     ipcMain.handle(MCP_CHANNELS.GET_STATUS, () => {
       return this.mcpServer.getStatus();
     });
+  }
+
+  private setupSettingsHandlers(): void {
+    ipcMain.handle(SETTINGS_CHANNELS.GET_API_KEY_STATUS, () => {
+      return this.settingsHandler.getApiKeyStatuses();
+    });
+
+    ipcMain.handle(
+      SETTINGS_CHANNELS.SET_API_KEY,
+      (_event, provider: ApiKeyProvider, key: string) => {
+        return this.settingsHandler.setApiKey(provider, key);
+      },
+    );
+
+    ipcMain.handle(
+      SETTINGS_CHANNELS.CLEAR_API_KEY,
+      (_event, provider: ApiKeyProvider) => {
+        return this.settingsHandler.clearApiKey(provider);
+      },
+    );
+
+    ipcMain.handle(
+      SETTINGS_CHANNELS.TEST_API_KEY,
+      (_event, provider: ApiKeyProvider, key: string) => {
+        return this.settingsHandler.testApiKey(provider, key);
+      },
+    );
   }
 
   private handleTabEvents(): void {
