@@ -23,10 +23,12 @@ import {
   KeyRound,
   ShieldCheck,
   ShieldAlert,
+  LogIn,
 } from "lucide-react";
 import { cn } from "@common/lib/utils";
 import { Button } from "@common/components/Button";
 import { ApprovalSheet } from "./ApprovalSheet";
+import { LoginSheet } from "./LoginSheet";
 import { ScriptReviewSheet } from "./ScriptReviewSheet";
 import { CsvViewer } from "./CsvViewer";
 import { ApiKeyManagerModal } from "./ApiKeyManagerModal";
@@ -61,6 +63,8 @@ const ActionIcon: React.FC<{ type: string }> = ({ type }) => {
       return <Search className="size-3" />;
     case "executeScript":
       return <Code className="size-3" />;
+    case "loginRequired":
+      return <LogIn className="size-3" />;
     case "finish":
       return <Flag className="size-3" />;
     default:
@@ -237,12 +241,14 @@ export const AgentPanel: React.FC = () => {
     goal,
     pendingApproval,
     pendingScriptReview,
+    pendingLogin,
     startAgent,
     abortAgent,
     sendMessage,
     clearAgent,
     resolveApproval,
     resolveScriptReview,
+    resolveLogin,
   } = useAgent();
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<PromptAttachment[]>([]);
@@ -592,14 +598,20 @@ export const AgentPanel: React.FC = () => {
         )}
       </div>
 
-      {pendingApproval && (
+      {/* Login wall takes priority over approval/script gates — the run
+          can't proceed past sign-in regardless of what else is queued. */}
+      {pendingLogin && (
+        <LoginSheet request={pendingLogin} onResolve={resolveLogin} />
+      )}
+
+      {pendingApproval && !pendingLogin && (
         <ApprovalSheet
           request={pendingApproval}
           onResolve={resolveApproval}
         />
       )}
 
-      {pendingScriptReview && !pendingApproval && (
+      {pendingScriptReview && !pendingApproval && !pendingLogin && (
         <ScriptReviewSheet
           request={pendingScriptReview}
           onResolve={resolveScriptReview}

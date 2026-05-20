@@ -88,6 +88,19 @@ export interface ScriptReviewRequest {
   createdAt: number;
 }
 
+export type LoginDecision = "signed-in" | "skip" | "stop";
+
+export interface LoginRequiredRequest {
+  id: string;
+  sessionId: string;
+  app: string;
+  instructions: string;
+  qrLogin: boolean;
+  url: string | null;
+  screenshot?: string;
+  createdAt: number;
+}
+
 export interface PromptAttachment {
   id: string;
   type: "url" | "file";
@@ -107,6 +120,7 @@ interface AgentContextType {
   sessionId: string | null;
   pendingApproval: ApprovalRequest | null;
   pendingScriptReview: ScriptReviewRequest | null;
+  pendingLogin: LoginRequiredRequest | null;
   startAgent: (goal: string, attachments?: PromptAttachment[]) => Promise<void>;
   abortAgent: () => Promise<void>;
   sendMessage: (message: string) => Promise<void>;
@@ -117,6 +131,7 @@ interface AgentContextType {
     decision: "approve" | "reject",
     approvedScript?: string,
   ) => Promise<void>;
+  resolveLogin: (id: string, decision: LoginDecision) => Promise<void>;
 }
 
 const AgentContext = createContext<AgentContextType | null>(null);
@@ -143,6 +158,9 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     useState<ApprovalRequest | null>(null);
   const [pendingScriptReview, setPendingScriptReview] =
     useState<ScriptReviewRequest | null>(null);
+  const [pendingLogin, setPendingLogin] = useState<LoginRequiredRequest | null>(
+    null,
+  );
   // Accumulates user goals + agent final answers across runs in this session.
   const [sessionHistory, setSessionHistory] = useState<ConversationTurn[]>([]);
   const currentGoalRef = useRef<string>("");
@@ -215,6 +233,7 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     setSessionId(null);
     setPendingApproval(null);
     setPendingScriptReview(null);
+    setPendingLogin(null);
     setSessionHistory([]);
     currentGoalRef.current = "";
   }, []);
@@ -227,6 +246,21 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
         console.error("Failed to resolve approval:", error);
       } finally {
         setPendingApproval((current): ApprovalRequest | null =>
+          current?.id === id ? null : current,
+        );
+      }
+    },
+    [],
+  );
+
+  const resolveLogin = useCallback(
+    async (id: string, decision: LoginDecision): Promise<void> => {
+      try {
+        await window.sidebarAPI.resolveAgentLogin(id, decision);
+      } catch (error) {
+        console.error("Failed to resolve login:", error);
+      } finally {
+        setPendingLogin((current): LoginRequiredRequest | null =>
           current?.id === id ? null : current,
         );
       }
@@ -367,6 +401,24 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
   useEffect(() => {
+    const handleLoginRequired = (request: LoginRequiredRequest): void => {
+      setPendingLogin(request);
+    };
+    window.sidebarAPI.onAgentLoginRequired(handleLoginRequired);
+
+    window.sidebarAPI
+      .getPendingAgentLogin()
+      .then((request) => {
+        if (request) setPendingLogin(request);
+      })
+      .catch(() => {});
+
+    return () => {
+      window.sidebarAPI.removeAgentLoginRequiredListener();
+    };
+  }, []);
+
+  useEffect(() => {
     const handleScriptReviewRequired = (request: ScriptReviewRequest): void => {
       setPendingScriptReview(request);
     };
@@ -394,12 +446,14 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
     sessionId,
     pendingApproval,
     pendingScriptReview,
+    pendingLogin,
     startAgent,
     abortAgent,
     sendMessage,
     clearAgent,
     resolveApproval,
     resolveScriptReview,
+    resolveLogin,
   };
 
   return (

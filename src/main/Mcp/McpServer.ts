@@ -12,10 +12,12 @@ import {
   type JsonRpcResponse,
   type McpInitializeParams,
   type McpInitializeResult,
+  type McpLoginRequiredEvent,
   type McpStatus,
   type McpToolCallParams,
   type McpToolsListResult,
 } from "./McpTypes";
+import type { LoginRequiredRequest } from "../Agent/types/AgentTypes";
 import { McpHandler, McpToolError } from "./McpHandler";
 
 interface SseClient {
@@ -114,6 +116,21 @@ export class McpServer {
       `[McpServer] Listening on http://${this.opts.host}:${this.opts.port}`,
     );
     this.emitStatus();
+  }
+
+  // Notify subscribed external MCP clients that the active delegation is
+  // blocked on a login wall. They cannot resolve it remotely (humans approve
+  // sign-in locally) but they may want to surface the prompt to their UI.
+  broadcastLoginRequired(request: LoginRequiredRequest): void {
+    const payload: McpLoginRequiredEvent = {
+      sessionId: request.sessionId,
+      app: request.app,
+      instructions: request.instructions,
+      qrLogin: request.qrLogin,
+      url: request.url,
+      createdAt: request.createdAt,
+    };
+    this.broadcast("login-required", payload);
   }
 
   async stop(): Promise<void> {

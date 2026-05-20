@@ -224,6 +224,38 @@ const sidebarAPI = {
     electronAPI.ipcRenderer.removeAllListeners("agent:script-review-required");
   },
 
+  // Login wall gate — fired when the agent calls loginRequired. The promise
+  // remains pending until the user resolves it via the sidebar.
+  getPendingAgentLogin: () =>
+    electronAPI.ipcRenderer.invoke("agent:get-pending-login"),
+
+  resolveAgentLogin: (
+    id: string,
+    decision: "signed-in" | "skip" | "stop",
+  ): Promise<boolean> =>
+    electronAPI.ipcRenderer.invoke("agent:resolve-login", id, decision),
+
+  onAgentLoginRequired: (
+    callback: (request: {
+      id: string;
+      sessionId: string;
+      app: string;
+      instructions: string;
+      qrLogin: boolean;
+      url: string | null;
+      screenshot?: string;
+      createdAt: number;
+    }) => void,
+  ) => {
+    electronAPI.ipcRenderer.on("agent:login-required", (_, payload) =>
+      callback(payload),
+    );
+  },
+
+  removeAgentLoginRequiredListener: () => {
+    electronAPI.ipcRenderer.removeAllListeners("agent:login-required");
+  },
+
   // Workflow functionality
   startWorkflowRecording: () =>
     electronAPI.ipcRenderer.invoke("workflow:start-recording"),

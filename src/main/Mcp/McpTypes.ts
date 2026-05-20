@@ -256,3 +256,17 @@ export interface McpCompletionEvent {
   readonly stepCount: number;
   readonly error?: string;
 }
+
+// Fired when the active agent run is blocked on a login wall and needs the
+// human at the local desktop to sign in. External agents (which delegated
+// the task over MCP) can subscribe via /mcp/sse to know that progress has
+// paused and to display this to *their* user. They cannot resolve it —
+// authentication must happen on the Blueberry desktop.
+export interface McpLoginRequiredEvent {
+  readonly sessionId: string;
+  readonly app: string;
+  readonly instructions: string;
+  readonly qrLogin: boolean;
+  readonly url: string | null;
+  readonly createdAt: number;
+}

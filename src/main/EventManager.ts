@@ -137,6 +137,29 @@ export class EventManager {
     ipcMain.handle("agent:get-pending-script-review", () => {
       return this.agentHandler.getPendingScriptReview();
     });
+
+    // Login wall gate — agent calls loginRequired and blocks until the user
+    // clicks "I'm signed in" in the sidebar (or skip/stop). MCP delegations
+    // also see this event over the SSE stream so external agents know human
+    // attention is needed (see setupMcpHandlers).
+    this.agentHandler.onLoginRequired((request) => {
+      this.mainWindow.sidebar.view.webContents.send(
+        "agent:login-required",
+        request,
+      );
+      this.mcpServer.broadcastLoginRequired(request);
+    });
+
+    ipcMain.handle(
+      "agent:resolve-login",
+      (_, id: string, decision: "signed-in" | "skip" | "stop") => {
+        return this.agentHandler.resolveLogin(id, decision);
+      },
+    );
+
+    ipcMain.handle("agent:get-pending-login", () => {
+      return this.agentHandler.getPendingLogin();
+    });
   }
 
   private setupWorkflowHandlers(): void {

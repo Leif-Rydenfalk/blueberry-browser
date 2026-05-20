@@ -18,7 +18,8 @@ export type ActionType =
   | "switchTab"
   | "closeTab"
   | "waitForSelector"
-  | "waitForApproval";
+  | "waitForApproval"
+  | "loginRequired";
 
 export interface NavigateParams {
   readonly url: string;
@@ -102,6 +103,43 @@ export interface WaitForSelectorParams {
 export interface WaitForApprovalParams {
   readonly reason: string;
   readonly previewData?: Readonly<Record<string, unknown>>;
+}
+
+// Login wall blocker. The agent calls this when it lands on a sign-in page.
+// The promise blocks indefinitely until the human signals "signed-in" (or
+// "skip"/"stop") via the sidebar UI — no passive polling, no agent-driven
+// recheck loop.
+export interface LoginRequiredParams {
+  // App / service name to show in the UI (e.g. "WhatsApp Web", "Gmail").
+  readonly app: string;
+  // Plain instructions the user needs to follow ("Scan the QR code in this
+  // tab using WhatsApp on your phone, then click I'm signed in.").
+  readonly instructions: string;
+  // Whether the wall is a QR-style login (phone-pair) vs a password form.
+  // Drives copy / iconography only — does not change behavior.
+  readonly qrLogin?: boolean;
+  // The page URL the user needs to act on. Defaults to the current tab URL.
+  readonly url?: string;
+}
+
+export type LoginDecision = "signed-in" | "skip" | "stop";
+
+export interface LoginRequiredRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly app: string;
+  readonly instructions: string;
+  readonly qrLogin: boolean;
+  readonly url: string | null;
+  readonly screenshot?: string;
+  readonly createdAt: number;
+}
+
+export interface LoginResolved {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly decision: LoginDecision;
+  readonly resolvedAt: number;
 }
 
 export interface ExecuteScriptParams {
@@ -215,6 +253,7 @@ export type ActionParamsMap = {
   closeTab: CloseTabParams;
   waitForSelector: WaitForSelectorParams;
   waitForApproval: WaitForApprovalParams;
+  loginRequired: LoginRequiredParams;
   executeScript: ExecuteScriptParams;
 };
 

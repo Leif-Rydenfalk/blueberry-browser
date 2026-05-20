@@ -80,6 +80,19 @@ interface AgentStreamUpdate {
 
 type ApprovalDecision = "approve-once" | "approve-all" | "skip" | "stop";
 
+type LoginDecision = "signed-in" | "skip" | "stop";
+
+interface LoginRequiredRequest {
+  readonly id: string;
+  readonly sessionId: string;
+  readonly app: string;
+  readonly instructions: string;
+  readonly qrLogin: boolean;
+  readonly url: string | null;
+  readonly screenshot?: string;
+  readonly createdAt: number;
+}
+
 interface ScriptReviewRequest {
   readonly id: string;
   readonly sessionId: string;
@@ -262,6 +275,12 @@ interface SidebarAPI {
     callback: (request: ScriptReviewRequest) => void,
   ) => void;
   removeAgentScriptReviewRequiredListener: () => void;
+  getPendingAgentLogin: () => Promise<LoginRequiredRequest | null>;
+  resolveAgentLogin: (id: string, decision: LoginDecision) => Promise<boolean>;
+  onAgentLoginRequired: (
+    callback: (request: LoginRequiredRequest) => void,
+  ) => void;
+  removeAgentLoginRequiredListener: () => void;
   // Workflow
   startWorkflowRecording: () => Promise<RecordingState>;
   stopWorkflowRecording: (name: string) => Promise<WorkflowSummary | null>;

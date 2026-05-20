@@ -9,6 +9,8 @@ import type {
   AgentTaskProfile,
   ApprovalDecision,
   ApprovalRequest,
+  LoginDecision,
+  LoginRequiredRequest,
   PromptAttachment,
   ScriptReviewRequest,
   ScriptReviewResolution,
@@ -31,6 +33,9 @@ export class AgentOrchestrator {
   private onScriptReviewRequired:
     | ((request: ScriptReviewRequest) => void)
     | null = null;
+  private onLoginRequired:
+    | ((request: LoginRequiredRequest) => void)
+    | null = null;
 
   constructor(window: Window) {
     this.window = window;
@@ -48,6 +53,18 @@ export class AgentOrchestrator {
     callback: (request: ScriptReviewRequest) => void,
   ): void {
     this.onScriptReviewRequired = callback;
+  }
+
+  setLoginCallback(callback: (request: LoginRequiredRequest) => void): void {
+    this.onLoginRequired = callback;
+  }
+
+  resolveLogin(id: string, decision: LoginDecision): boolean {
+    return this.activeRunner?.resolveLogin(id, decision) ?? false;
+  }
+
+  getPendingLogin(): LoginRequiredRequest | null {
+    return this.activeRunner?.getPendingLogin() ?? null;
   }
 
   resolveApproval(id: string, decision: ApprovalDecision): boolean {
@@ -117,6 +134,9 @@ export class AgentOrchestrator {
     });
     runner.setScriptReviewCallback((request) => {
       this.onScriptReviewRequired?.({ ...request, sessionId });
+    });
+    runner.setLoginCallback((request) => {
+      this.onLoginRequired?.({ ...request, sessionId });
     });
 
     // Set up callbacks
@@ -267,6 +287,9 @@ export class AgentOrchestrator {
     });
     runner.setScriptReviewCallback((request) => {
       this.onScriptReviewRequired?.({ ...request, sessionId });
+    });
+    runner.setLoginCallback((request) => {
+      this.onLoginRequired?.({ ...request, sessionId });
     });
 
     return new Promise((resolve) => {

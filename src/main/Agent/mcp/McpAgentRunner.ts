@@ -25,6 +25,8 @@ import type {
   AgentStreamUpdate,
   ApprovalDecision,
   ApprovalRequest,
+  LoginDecision,
+  LoginRequiredRequest,
   ScriptReviewRequest,
   ScriptReviewResolution,
   TabStrategy,
@@ -64,6 +66,11 @@ interface PendingScriptReview {
   readonly resolve: (resolution: ScriptReviewResolution) => void;
 }
 
+interface PendingLogin {
+  readonly request: LoginRequiredRequest;
+  readonly resolve: (decision: LoginDecision) => void;
+}
+
 // ─── Tool result shape returned to Claude ─────────────────────────────────────
 
 interface ToolResult {
@@ -83,6 +90,7 @@ export class McpAgentRunner {
   private abortController: AbortController | null = null;
   private pendingApproval: PendingApproval | null = null;
   private pendingScriptReview: PendingScriptReview | null = null;
+  private pendingLogin: PendingLogin | null = null;
   private approveAllForRun = false;
   private stepNum = 0;
   private sessionId = "";
@@ -98,6 +106,8 @@ export class McpAgentRunner {
   private onScriptReviewRequired:
     | ((request: ScriptReviewRequest) => void)
     | null = null;
+  private onLoginRequired: ((request: LoginRequiredRequest) => void) | null =
+    null;
 
   constructor(
     private readonly config: AgentConfig,
@@ -125,6 +135,26 @@ export class McpAgentRunner {
     onScriptReviewRequired: (request: ScriptReviewRequest) => void,
   ): void {
     this.onScriptReviewRequired = onScriptReviewRequired;
+  }
+
+  setLoginCallback(
+    onLoginRequired: (request: LoginRequiredRequest) => void,
+  ): void {
+    this.onLoginRequired = onLoginRequired;
+  }
+
+  getPendingLogin(): LoginRequiredRequest | null {
+    return this.pendingLogin?.request ?? null;
+  }
+
+  resolveLogin(id: string, decision: LoginDecision): boolean {
+    if (!this.pendingLogin || this.pendingLogin.request.id !== id) {
+      return false;
+    }
+    const resolve = this.pendingLogin.resolve;
+    this.pendingLogin = null;
+    resolve(decision);
+    return true;
   }
 
   getPendingApproval(): ApprovalRequest | null {
@@ -172,6 +202,11 @@ export class McpAgentRunner {
       this.pendingScriptReview = null;
       resolve({ decision: "reject" });
     }
+    if (this.pendingLogin) {
+      const resolve = this.pendingLogin.resolve;
+      this.pendingLogin = null;
+      resolve("stop");
+    }
   }
 
   isActive(): boolean {
@@ -201,6 +236,7 @@ export class McpAgentRunner {
     this.approveAllForRun = this.config.autoApprove ?? false;
     this.pendingApproval = null;
     this.pendingScriptReview = null;
+    this.pendingLogin = null;
     this.abortController = new AbortController();
     this.stepNum = 0;
     this.collected = new Map();
@@ -767,7 +803,7 @@ export class McpAgentRunner {
 
           const message = bucketTotal > 0
             ? `Bucket "${params.name}" now has ${bucketTotal} unique rows (fields: ${[...bucket!.fields].join(", ")}). ✓ Stage complete — continue to the next stage.`
-            : `⚠ ZERO ROWS collected for "${params.name}". This stage is NOT complete. DO NOT proceed to the next pipeline stage. You must retry:\n  1. Call screenshot to see what is currently on the page\n  2. If you see a sign-in / login page: call waitForApproval("Please sign in to continue")\n  3. Wait 2s then retry extractSchema with a looser schema or different containerHint\n  4. Try scroll(down) to load content then retry\n  Only skip this stage after 3+ failed attempts — and note the failure explicitly in your final answer.`;
+            : `⚠ ZERO ROWS collected for "${params.name}". This stage is NOT complete. DO NOT proceed to the next pipeline stage. You must retry:\n  1. Call screenshot to see what is currently on the page\n  2. If you see a sign-in / login page: call loginRequired({app:"[the app]", instructions:"Sign in and click I'm signed in.", qrLogin:false})\n  3. Wait 2s then retry extractSchema with a looser schema or different containerHint\n  4. Try scroll(down) to load content then retry\n  Only skip this stage after 3+ failed attempts — and note the failure explicitly in your final answer.`;
 
           return {
             ...result,
@@ -880,6 +916,126 @@ export class McpAgentRunner {
 
           const ctx = await this.getPageContext();
           return this.wrapResult(result, ctx);
+        },
+      },
+
+      loginRequired: {
+        description:
+          "Block the run until the user signs in. Call this EXACTLY ONCE when you land on a login / sign-in / QR-code page. The tool returns only after the user clicks 'I'm signed in' (or skip/stop) in the sidebar — there is no timeout, no polling, no retry loop. After it resolves, take a screenshot to confirm you are past the login wall, then continue the task. Do NOT call wait() or screenshot() in a loop waiting for login — call this tool and let the human drive it.",
+        inputSchema: jsonSchema({
+          type: "object",
+          properties: {
+            app: {
+              type: "string",
+              description:
+                "App/service name (e.g. 'WhatsApp Web', 'Gmail', 'Slack'). Shown in the sidebar UI.",
+            },
+            instructions: {
+              type: "string",
+              description:
+                "Plain instructions the user needs to follow (e.g. 'Scan the QR code on screen with WhatsApp on your phone, then click I am signed in.').",
+            },
+            qrLogin: {
+              type: "boolean",
+              description:
+                "true if this is a QR-code / phone-pair login, false for password/OAuth.",
+            },
+            url: {
+              type: "string",
+              description:
+                "URL of the login page (optional — defaults to current tab URL).",
+            },
+          },
+          required: ["app", "instructions"],
+        }),
+        execute: async (params: {
+          app: string;
+          instructions: string;
+          qrLogin?: boolean;
+          url?: string;
+        }) => {
+          this.stepNum++;
+          const action: AgentAction = {
+            type: "loginRequired",
+            params,
+            reasoning: `Sign-in required for ${params.app}`,
+          };
+
+          this.emitUpdate({
+            step: this.stepNum,
+            totalSteps: this.config.maxSteps,
+            action,
+            status: "running",
+            sessionId: this.sessionId,
+          });
+
+          // Auto-approve mode (MCP delegations): we still gate on login because
+          // sign-in requires the human at the desktop — a remote agent can't
+          // type a password or scan a QR. Returning "signed-in" without user
+          // action would just loop forever on the next screenshot.
+
+          const currentUrl = await this.strategy.getCurrentUrl().catch(() => null);
+          const screenshot = await this.strategy.captureScreenshot();
+          const request: LoginRequiredRequest = {
+            id: uuidv4(),
+            sessionId: this.sessionId,
+            app: params.app,
+            instructions: params.instructions,
+            qrLogin: params.qrLogin ?? false,
+            url: params.url ?? currentUrl,
+            screenshot: screenshot ?? undefined,
+            createdAt: Date.now(),
+          };
+
+          const decision = await new Promise<LoginDecision>((resolve) => {
+            this.pendingLogin = { request, resolve };
+            this.onLoginRequired?.(request);
+          });
+
+          const result: ActionResult =
+            decision === "stop"
+              ? {
+                  success: false,
+                  error: "User stopped at login wall",
+                  recoverable: false,
+                }
+              : {
+                  success: true,
+                  data: { decision, signedIn: decision === "signed-in" },
+                };
+          this.steps.push({
+            id: uuidv4(),
+            timestamp: Date.now(),
+            action,
+            result,
+          });
+
+          this.emitUpdate({
+            step: this.stepNum,
+            totalSteps: this.config.maxSteps,
+            action,
+            status: "success",
+            result,
+            sessionId: this.sessionId,
+          });
+
+          if (decision === "stop") {
+            this.abortController?.abort();
+            return { signedIn: false, stopped: true };
+          }
+
+          // Return fresh page context so Claude sees the post-login page in
+          // the next tool result.
+          const ctx = await this.getPageContext();
+          return {
+            signedIn: decision === "signed-in",
+            decision,
+            ...ctx,
+            message:
+              decision === "signed-in"
+                ? `User signaled signed-in. Take a screenshot to confirm the login wall is gone, then continue with the task. If the login wall is still visible, call loginRequired again with a clearer instruction.`
+                : `User skipped sign-in for ${params.app}. Move on to the next stage without this app's data.`,
+          };
         },
       },
 
@@ -1116,6 +1272,7 @@ export class McpAgentRunner {
       "select",
       "finish",
       "waitForApproval",
+      "loginRequired",
       "executeScript",
     ]);
     const screenshot = skipScreenshot.has(action.type)
@@ -1499,7 +1656,7 @@ SCREENSHOT VERIFICATION — MANDATORY before and after irreversible actions:
 RETRYING — NEVER give up after one failure:
 - If a click does nothing: try again with a different selector or coordinates.
 - If a page loads blank: wait(2000) then screenshot.
-- If sign-in is required: try up to 5 times with waitForApproval (see SIGN-IN WALLS section).
+- If sign-in is required: call loginRequired ONCE (see SIGN-IN WALLS section) — do not loop with wait()/screenshot().
 - If extractSchema returns 0 rows: retry at least 3 times with different approaches before skipping.
 - If you cannot find an element: scroll to find it, try a different selector, try coordinates.
 
@@ -1590,7 +1747,7 @@ When you start extracting from any app:
 ────────────────────────────────────────────────────────────
 THIRD-PARTY INTEGRATIONS — HOW TO USE EACH APP
 ────────────────────────────────────────────────────────────
-The user may ask you to work with these apps. Navigate to them like a human would. If you hit a sign-in wall, use waitForApproval to ask the user to sign in, then continue.
+The user may ask you to work with these apps. Navigate to them like a human would. If you hit a sign-in wall, use loginRequired to ask the user to sign in, then continue.
 
 GMAIL — INBOX (mail.google.com/inbox)
 - Navigate to https://mail.google.com to open the inbox.
@@ -1765,7 +1922,7 @@ PHASE 3 — CURIOSITY CHECKS:
 WHATSAPP WEB (web.whatsapp.com)
 - Navigate to https://web.whatsapp.com to open the messenger.
 - To open a chat with a specific phone number directly: navigate to https://web.whatsapp.com/send?phone=<E164> where <E164> is the number in international format WITHOUT the + or any spaces/dashes (e.g. 46729782220 for Swedish +46 72 978 22 20). WhatsApp will resolve the contact and open the chat.
-- WhatsApp Web uses QR-CODE LOGIN. If you see a large canvas element (≥200px) and any of "Scan to log in" / "Link with phone number instead" / "Linked devices" text, you are on the QR auth wall. This is a SIGN-IN WALL — follow the QR-LOGIN protocol below.
+- WhatsApp Web uses QR-CODE LOGIN. If you see a large canvas element (≥200px) and any of "Scan to log in" / "Link with phone number instead" / "Linked devices" text, you are on the QR auth wall — call loginRequired({app:"WhatsApp Web", qrLogin:true, instructions:"Open WhatsApp on your phone → Settings → Linked Devices → Link a Device, scan the QR code on screen, then click I'm signed in."}). Do NOT poll with wait()/screenshot() — the tool blocks until the user signals signed-in.
 - After auth: the left sidebar shows chats. Click a chat name to open it.
 - Message input: the contenteditable at the bottom of the chat (placeholder "Type a message"). Click it, type, then press Enter or click the green send arrow to send. ALWAYS waitForApproval with previewData={to, message} before pressing send — messages are irreversible once delivered.
 - Search contacts: click the search bar above the chat list, type a name or number.
@@ -1844,30 +2001,53 @@ Destructive elements (Send, Pay, Delete, Confirm) automatically trigger an appro
 Draft-then-approve pattern: prepare all content first, then one waitForApproval before irreversible sends.
 
 ────────────────────────────────────────────────────────────
-SIGN-IN WALLS — PERSISTENT RETRY REQUIRED
+SIGN-IN WALLS — USE loginRequired, NEVER POLL
 ────────────────────────────────────────────────────────────
-When you hit a login/sign-in page:
+When you land on a login / sign-in / QR-code page, call the dedicated tool:
 
-1. waitForApproval(reason="Please sign in to [App] and click Approve when you are logged in and can see your data.")
-2. After approval: screenshot — confirm you are now logged in and can see the app's main content.
-3. If STILL on a login page after approval:
-   a. wait(2000)
-   b. screenshot to see current state
-   c. waitForApproval again: "Still on the login page. Please complete sign-in and click Approve again."
-4. Repeat up to 5 times total. Each attempt: wait(2000) → screenshot → waitForApproval if still locked.
-5. Only after 5 failed login attempts: note "Could not sign in to [App] after 5 attempts" in your answer and move to the next pipeline stage.
+  loginRequired({
+    app: "WhatsApp Web",        // user-visible service name
+    instructions: "Scan the QR code on screen using WhatsApp on your phone (Settings → Linked Devices → Link a Device), then click 'I'm signed in' below.",
+    qrLogin: true,              // true for QR pair, false for password/OAuth
+    url: "https://web.whatsapp.com"   // optional — defaults to current URL
+  })
 
-NEVER give up on login after just one waitForApproval. NEVER skip an app because it "might" be a login wall — screenshot first to confirm.
+This tool BLOCKS the agent run until the human clicks "I'm signed in" (or
+"Skip"/"Stop") in the sidebar — no timeout, no automatic recheck.
 
-QR-CODE LOGIN (WhatsApp Web, Signal, Telegram, some banking apps):
-Some apps don't have password fields — they show a QR code that the user scans with a companion phone app to authenticate. Detect this pattern by:
-  • a large canvas element (typically 200–400px square) AND
-  • text mentioning "Scan", "QR", "Link with phone", "Linked devices", or similar
-Treat exactly as a sign-in wall, but the reason text MUST tell the user to scan with their phone, e.g.:
-  waitForApproval(reason="Please open WhatsApp on your phone, go to Settings → Linked Devices → Link a Device, scan the QR code on screen, then click Approve.")
-After approval: screenshot to confirm the QR is gone and the app's main UI (chat list, inbox) is visible. If still on QR: wait(2000) → screenshot → waitForApproval again. The user's phone may take a few seconds to register. The sessions persist across browser restarts (default Electron session is on-disk), so this scan is a one-time cost per device.
+⚠ DO NOT chain wait() / screenshot() / waitForApproval() to poll for login
+completion. That's the old broken pattern. The flow is:
 
-After a successful login: navigate back to the correct page (inbox, calendar view, etc.) and continue the task. The login redirected you — you are responsible for navigating back.
+  1. Hit a login wall → call loginRequired() ONCE with clear instructions.
+  2. The tool returns when the user signals signed-in (or skip/stop).
+  3. Take ONE screenshot to confirm you are past the wall.
+  4. If still on the login page (very rare — user clicked too early): call
+     loginRequired again with a sharper instruction. Do not pre-emptively
+     call wait() or take screenshots before the user has had time to act.
+
+DETECTING A LOGIN WALL:
+- Password-form pages: "Sign in", "Log in", "Continue with Google", input
+  type=password, OAuth provider buttons.
+- QR-code pages (WhatsApp Web, Signal, Telegram, some banking): a large
+  canvas element (≥200px square) AND text containing "Scan", "QR",
+  "Link with phone", "Linked devices", "scan to log in".
+- 2FA / OTP pages: "Enter the code", "Verification code", numeric inputs.
+
+For every login type: call loginRequired with instructions matching what the
+user must do on the page (scan QR / enter password / enter the OTP code).
+
+NEVER skip an app because it "might" require login — call loginRequired and
+let the user complete it. Sessions persist across browser restarts (default
+Electron session is on-disk), so each app is a one-time cost per device.
+
+After loginRequired returns signedIn=true: take ONE screenshot to confirm,
+then navigate back to the task URL if you got redirected. The login flow may
+have changed the URL — you are responsible for getting back to the right
+page (inbox, chat list, calendar view, etc.).
+
+If the user chose "Skip": note in your final answer that this app's data
+could not be retrieved because the user skipped sign-in, then continue with
+the remaining pipeline stages.
 
 ────────────────────────────────────────────────────────────
 MULTI-APP PIPELINE TASKS — MANDATORY PROTOCOL
@@ -1884,7 +2064,7 @@ The initial prompt will list them explicitly — follow that list exactly.
 
 STEP 2 — EXTRACT (not just navigate): For EACH app:
   a. navigate to the app
-  b. if sign-in wall: waitForApproval("Please sign in to [App] and click Approve to continue")
+  b. if sign-in wall: loginRequired({app:"[App]", instructions:"Sign in and click I'm signed in to continue.", qrLogin:false})
   c. wait for page to load (waitForSelector or screenshot to confirm)
   d. extractSchema with a descriptive bucket name (e.g. "gmail_unreads", "slack_unreads", "calendar_today")
   e. CHECK the tool result — look for "stageComplete: true" and bucketTotal > 0
@@ -1899,7 +2079,7 @@ STEP 4 — SYNTHESIZE: Only after ALL apps are done, call finish with sections f
 ║  ZERO-ROW RULE — NEVER SILENTLY SKIP A STAGE                    ║
 ║  If extractSchema returns bucketTotal=0 or "ZERO ROWS":          ║
 ║  1. screenshot → see what is on the page right now               ║
-║  2. If login/sign-in wall: waitForApproval then navigate back    ║
+║  2. If login/sign-in wall: loginRequired then navigate back     ║
 ║  3. wait(2000) then retry extractSchema (same name, looser hints)║
 ║  4. scroll(down) to trigger lazy-loaded content, then retry      ║
 ║  5. Only after 3 failed attempts: note the failure in answer     ║
@@ -1918,11 +2098,11 @@ Correct execution:
 1. navigate(https://mail.google.com) → handle sign-in if needed
 2. extractSchema(name="gmail_unreads", schema={sender:"sender name", subject:"email subject", snippet:"first line of body", time:"received time", label:"Gmail label"})
    → result shows bucketTotal=48, stageComplete=true. Gmail ✓
-3. navigate(https://app.slack.com) → handle sign-in if needed (waitForApproval if login wall)
+3. navigate(https://app.slack.com) → handle sign-in if needed (loginRequired if login wall)
 4. extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"who sent it", preview:"message preview", time:"when sent", type:"channel/DM/mention"})
    → IF bucketTotal=0: apply ZERO-ROW RULE
      a. screenshot → see current page state
-     b. if sign-in redirect: waitForApproval, then navigate back and retry
+     b. if sign-in redirect: loginRequired, then navigate back and retry
      c. wait(2000) → retry extractSchema with containerHint:"sidebar unread items"
      d. scroll(down) → retry again if still 0
      → After retry bucketTotal=N. Slack ✓. Calendar still pending — DO NOT call finish.
@@ -2083,7 +2263,7 @@ DO NOT call finish after completing only some stages. Work through every stage i
     if (lower.includes("slack")) {
       stages.push({
         label: "Slack",
-        instruction: 'navigate to https://app.slack.com, handle sign-in if needed (waitForApproval if redirected to login). Then extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"message sender", preview:"message preview", time:"timestamp", type:"channel/DM/mention"}). IF bucketTotal=0: screenshot → check for login wall → wait(2000) → retry extractSchema with containerHint:"sidebar unread channels". Repeat until rows > 0 or 3 attempts exhausted.',
+        instruction: 'navigate to https://app.slack.com, handle sign-in if needed (loginRequired if redirected to login). Then extractSchema(name="slack_unreads", schema={channel:"channel or DM name", sender:"message sender", preview:"message preview", time:"timestamp", type:"channel/DM/mention"}). IF bucketTotal=0: screenshot → check for login wall → if login wall call loginRequired, otherwise retry extractSchema with containerHint:"sidebar unread channels". Repeat until rows > 0 or 3 attempts exhausted.',
       });
     }
 

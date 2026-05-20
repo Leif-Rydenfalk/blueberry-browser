@@ -4,6 +4,8 @@ import type {
   AgentStreamUpdate,
   ApprovalDecision,
   ApprovalRequest,
+  LoginDecision,
+  LoginRequiredRequest,
   ScriptReviewRequest,
   ScriptReviewResolution,
 } from "../types/AgentTypes";
@@ -16,6 +18,8 @@ export class AgentIpcHandler {
     new Set();
   private scriptReviewListeners: Set<(request: ScriptReviewRequest) => void> =
     new Set();
+  private loginListeners: Set<(request: LoginRequiredRequest) => void> =
+    new Set();
 
   constructor(window: Window) {
     this.orchestrator = new AgentOrchestrator(window);
@@ -27,6 +31,9 @@ export class AgentIpcHandler {
     });
     this.orchestrator.setScriptReviewCallback((request) => {
       this.scriptReviewListeners.forEach((listener) => listener(request));
+    });
+    this.orchestrator.setLoginCallback((request) => {
+      this.loginListeners.forEach((listener) => listener(request));
     });
   }
 
@@ -94,5 +101,21 @@ export class AgentIpcHandler {
 
   getPendingScriptReview(): ScriptReviewRequest | null {
     return this.orchestrator.getPendingScriptReview();
+  }
+
+  onLoginRequired(callback: (request: LoginRequiredRequest) => void): void {
+    this.loginListeners.add(callback);
+  }
+
+  removeLoginListener(callback: (request: LoginRequiredRequest) => void): void {
+    this.loginListeners.delete(callback);
+  }
+
+  resolveLogin(id: string, decision: LoginDecision): boolean {
+    return this.orchestrator.resolveLogin(id, decision);
+  }
+
+  getPendingLogin(): LoginRequiredRequest | null {
+    return this.orchestrator.getPendingLogin();
   }
 }

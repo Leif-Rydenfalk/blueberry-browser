@@ -406,6 +406,19 @@ category, not just a feature.
 
 ---
 
+## Track 7 — Login Wall Gate *(shipped)*
+
+A first-class sign-in flow distinct from the generic Track-4 approval gate.
+The agent calls `loginRequired({ app, instructions, qrLogin, url })` exactly
+once when it hits a sign-in / QR-code page; the run blocks until the user
+clicks **"I'm signed in"** (or "Skip" / "Stop") in a dedicated sidebar
+sheet. The MCP SSE stream broadcasts a `login-required` event so external
+agents that delegated the task know human attention is needed.
+
+See `LOGIN_FLOW.md` for the full design and code map.
+
+---
+
 ## Implementation order (recommended)
 
 1. ~~**Track 5**~~ ✓ shipped — small, self-contained, immediate value on every scrape task.
