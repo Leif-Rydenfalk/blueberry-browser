@@ -89,6 +89,20 @@ Tasks are defined in `src/main/testTasks.ts` and grouped by complexity tier.
 | 4 — Multi-site research | Navigate 2+ domains, cross-reference | `electron-version-research`, `tech-comparison-research`, `wikipedia-topic-exploration` |
 | 5 — Data pipelines | Pagination, multi-page aggregation, issue triage | `multi-page-job-listings`, `github-issue-triage`, `packages-changelog-research` |
 | 6 — Creative agentic | Synthesis, categorization, recommendation | `tech-news-digest`, `open-source-discovery` |
+| 7 — Cross-app workflows | Multi-step sequential tasks across apps, context passing | `daily-brief-multi-source`, `stakeholder-prep-research`, `lead-enrichment-pipeline`, `discovery-filter-shortlist` |
+
+**Tier 7 notes:** These tests simulate the flagship delegation use-cases using
+publicly accessible sites (no login required). The equivalent real workflows
+— Gmail + Google Calendar brief, Calendar + LinkedIn meeting prep, Google Sheets
+lead enrichment, conference speaker shortlisting — all work identically: the
+agent navigates to the real app and calls `waitForApproval` if it hits a login
+wall. Tier 7 tasks run 10–20 minutes each and are best run selectively:
+
+```bash
+# Run one Tier 7 task alone to avoid API rate limiting
+pnpm test --filter=daily-brief-multi-source
+pnpm test --filter=lead-enrichment-pipeline
+```
 
 ---
 

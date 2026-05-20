@@ -61,13 +61,14 @@ Blueberry instance. If Blueberry isn't running, the bridge returns a clear
 
 ---
 
-## The Tool Surface (Minimal, v1)
+## The Tool Surface
+
+### `delegate_task` — single-step delegation
 
 ```jsonc
 {
   "name": "delegate_task",
-  "description":
-    "Delegate a web-UI task to Blueberry Browser. The task is executed in a real browser as if a human were doing it. Use natural language. Returns the agent's final answer plus the session id for follow-up.",
+  "description": "Delegate a web-UI task to Blueberry Browser. Executed in a real browser as if a human were doing it. Use natural language.",
   "inputSchema": {
     "type": "object",
     "required": ["task"],
@@ -81,23 +82,142 @@ Blueberry instance. If Blueberry isn't running, the bridge returns a clear
 }
 ```
 
-Output envelope (the `content` block of `tools/call`'s response):
+Output envelope:
 
 ```jsonc
 {
   "sessionId": "uuid",
   "status":    "completed" | "error" | "aborted",
-  "answer":    "string | null",      // agent's final-step answer text
+  "answer":    "string | null",
   "stepCount": 12,
-  "url":       "https://final.url",  // current tab url on completion
+  "url":       "https://final.url",
   "error":     "string | undefined"
 }
 ```
 
-That's deliberately the entire surface. Workflows, tab control, dataset bulk
-runs — all of that exists in the desktop UI but is *not* exposed to outside
-agents in v1. The framing matches what a human delegator would say: *"do this
-thing for me, tell me how it went."*
+---
+
+### `delegate_workflow` — multi-step, cross-app delegation
+
+Use this when a task requires sequential work across multiple applications —
+each step's answer is automatically injected as context into later steps.
+
+```jsonc
+{
+  "name": "delegate_workflow",
+  "description": "Execute a structured multi-step workflow across multiple web apps. Steps run sequentially; earlier results are passed as context to later steps.",
+  "inputSchema": {
+    "type": "object",
+    "required": ["steps"],
+    "properties": {
+      "steps": {
+        "type": "array",
+        "minItems": 2,
+        "maxItems": 10,
+        "items": {
+          "type": "object",
+          "required": ["name", "task"],
+          "properties": {
+            "name":      { "type": "string", "description": "Step identifier, e.g. 'gmail', 'calendar', 'synthesis'" },
+            "task":      { "type": "string", "description": "Plain-English instruction" },
+            "dependsOn": { "type": "array", "items": { "type": "string" }, "description": "Step names to inject as context (default: all previous steps)" }
+          }
+        }
+      },
+      "context": { "type": "string", "description": "Optional shared background for all steps" }
+    }
+  }
+}
+```
+
+Output envelope:
+
+```jsonc
+{
+  "workflowId":      "uuid",
+  "status":          "completed" | "partial" | "error",
+  "steps": [
+    { "name": "gmail",    "status": "completed", "answer": "...", "stepCount": 12 },
+    { "name": "calendar", "status": "completed", "answer": "...", "stepCount": 8  },
+    { "name": "synthesis","status": "completed", "answer": "...", "stepCount": 4  }
+  ],
+  "finalAnswer":     "string | null",   // last completed step's answer
+  "totalStepCount":  24,
+  "error":           "string | undefined"
+}
+```
+
+`status` is `"partial"` when at least one step succeeded but not all — the
+workflow continues through failures so later synthesis steps can work with
+partial data.
+
+#### Example — daily attention brief
+
+```jsonc
+{
+  "tool": "delegate_workflow",
+  "arguments": {
+    "context": "User: Leif. Company: Acme Corp. Today is 2026-05-20.",
+    "steps": [
+      {
+        "name": "gmail",
+        "task": "Open Gmail at https://mail.google.com. If not logged in use waitForApproval. Summarise the 10 most recent unread emails: sender, subject, one-line summary, urgency (high/medium/low)."
+      },
+      {
+        "name": "calendar",
+        "task": "Open Google Calendar at https://calendar.google.com. If not logged in use waitForApproval. List all events for today and tomorrow: time, title, attendees."
+      },
+      {
+        "name": "synthesis",
+        "task": "Using the Gmail and Calendar summaries provided in your context, write a 'What Needs My Attention Today' brief with sections: Urgent Emails, Meetings Today, Meetings Tomorrow, Action Items.",
+        "dependsOn": ["gmail", "calendar"]
+      }
+    ]
+  }
+}
+```
+
+#### Example — meeting prep pipeline
+
+```jsonc
+{
+  "steps": [
+    {
+      "name": "calendar",
+      "task": "Open Google Calendar tomorrow's view. List external attendees (non-company email domains) for each meeting."
+    },
+    {
+      "name": "linkedin",
+      "task": "For each external attendee found in the context, search LinkedIn for their profile. Extract: current title, company, recent posts or activity. Use waitForApproval if login is needed."
+    },
+    {
+      "name": "prep-doc",
+      "task": "Using the calendar and LinkedIn data in context, write a one-page prep document in Notion (https://notion.so). Create a new page titled 'Meeting Prep - [date]'. For each attendee include: name, title, talking points, recent context."
+    }
+  ]
+}
+```
+
+#### Example — lead enrichment
+
+```jsonc
+{
+  "steps": [
+    {
+      "name": "sheet-read",
+      "task": "Open the Google Sheet at https://docs.google.com/spreadsheets/d/[ID]. Extract all rows with name and company (columns A and B). Use waitForApproval if login is needed."
+    },
+    {
+      "name": "linkedin-enrich",
+      "task": "For each lead in the context, search LinkedIn for their profile URL and current job title. Work through the list row by row."
+    },
+    {
+      "name": "sheet-write",
+      "task": "Return to the Google Sheet. Fill in the LinkedIn URL (column C) and job title (column D) for each row using the data found in the previous step."
+    }
+  ]
+}
+```
 
 ---
 

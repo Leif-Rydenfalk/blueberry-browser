@@ -210,6 +210,128 @@ export const TEST_TASKS: readonly TestTask[] = [
     }),
   },
 
+  // ─── Tier 7: Cross-app workflow simulations ─────────────────────────────────
+  //
+  // These tests mirror the four flagship cross-app delegation patterns:
+  //   1. inbox + calendar → daily attention brief
+  //   2. calendar attendees → multi-source meeting prep doc
+  //   3. lead list → enrichment pipeline
+  //   4. conference discovery → relevance filter → shortlist
+  //
+  // All four use publicly accessible sites so no user authentication is needed.
+  // When running equivalent real workflows (Gmail, Google Calendar, LinkedIn,
+  // Notion, Salesforce) the agent navigates to those apps and uses
+  // waitForApproval to ask the user to log in before continuing.
+
+  {
+    name: "daily-brief-multi-source",
+    goal: `You are an AI assistant generating a 'What Needs My Attention Today' brief.
+
+Step 1 — Tech News: Go to https://news.ycombinator.com and use extractSchema to collect the top 15 posts (columns: rank, title, points, domain). Identify the top 3 by points and note their scores.
+
+Step 2 — Open Source: Go to https://github.com/trending and use extractSchema to collect the top 10 trending repos today (columns: repo_name, description, language, stars_today).
+
+Step 3 — Synthesis: Combine what you found into a formatted 'Daily Brief' with these sections:
+  Top Stories (top 3 HN posts by points with scores and domains)
+  Trending Code (top 3 GitHub repos with language and stars)
+  What Needs Attention (2-3 bullet points calling out anything AI/ML, security, or major releases)
+
+Call finish with the complete formatted brief.`,
+    timeoutMs: 300_000,
+    validate: (answer, steps) => ({
+      pass:
+        answer.length > 400 &&
+        steps >= 6 &&
+        contains(answer, "github", "trending", "point", "star", "attention", "news", "story", "brief"),
+      reason: "Should aggregate HN + GitHub trending and synthesize a structured daily brief",
+    }),
+  },
+
+  {
+    name: "stakeholder-prep-research",
+    goal: `Prepare a one-page briefing document for a meeting with the Vercel team.
+
+Step 1 — Company Website: Go to https://vercel.com and extract the company tagline, main product description, and the key features shown on the homepage.
+
+Step 2 — GitHub Presence: Go to https://github.com/vercel and use extractSchema to get their top 5 repositories (columns: repo_name, description, stars). Note the most starred repo.
+
+Step 3 — Community Signals: Go to https://hn.algolia.com/?q=vercel and extract the first 5 results using extractSchema (columns: title, points, date). What topics do people associate with Vercel?
+
+Step 4 — Synthesis: Write a 1-page meeting prep document with these sections:
+  Company Overview (tagline and product)
+  Key Products and GitHub Ecosystem (top repos and stars)
+  Community Perception (themes from HN discussions)
+  Suggested Talking Points (2-3 based on your research)
+
+Call finish with the complete briefing document.`,
+    timeoutMs: 450_000,
+    validate: (answer, steps) => ({
+      pass:
+        answer.length > 500 &&
+        steps >= 8 &&
+        contains(answer, "vercel") &&
+        contains(answer, "github", "repo", "star") &&
+        contains(answer, "overview", "product", "community", "talking point", "brief", "point"),
+      reason: "Should research Vercel across 3 sources and synthesize a structured meeting prep doc",
+    }),
+  },
+
+  {
+    name: "lead-enrichment-pipeline",
+    goal: `You are enriching a lead list for a developer-tools sales team. Process these 3 companies.
+
+For each company, do both steps before moving on:
+  a) Visit the company website and extract its core value proposition
+  b) Visit its GitHub org and find the most popular repo by stars using extractSchema
+
+Companies:
+  1. Supabase — website: https://supabase.com   GitHub: https://github.com/supabase
+  2. PlanetScale — website: https://planetscale.com   GitHub: https://github.com/planetscale
+  3. Neon — website: https://neon.tech   GitHub: https://github.com/neondatabase
+
+After visiting all 6 pages output:
+  - A structured comparison table: Company | Core Value Prop | Top Repo | Stars
+  - A 1-paragraph recommendation on which has the strongest open-source community presence
+
+Call finish with the complete table and recommendation.`,
+    timeoutMs: 540_000,
+    validate: (answer, steps) => ({
+      pass:
+        answer.length > 400 &&
+        steps >= 10 &&
+        contains(answer, "supabase") &&
+        contains(answer, "planetscale", "planet scale", "planet") &&
+        contains(answer, "neon") &&
+        contains(answer, "star"),
+      reason: "Should enrich all 3 companies (website + GitHub each) and output a comparison table",
+    }),
+  },
+
+  {
+    name: "discovery-filter-shortlist",
+    goal: `You are scouting AI/ML projects for a partnership shortlist.
+
+Step 1 — Discovery: Go to https://github.com/explore/topics/machine-learning and use extractSchema to collect the top 10 repos (columns: repo_name, description, language, stars).
+
+Step 2 — Deep Dive: Identify the 2 repositories most likely to be production-ready tools. For each, navigate to its GitHub page and extract: full description, star count, and whether it has a website link.
+
+Step 3 — Community Signal: For the top repository by stars, go to https://hn.algolia.com/?q=[repo-name] (replace [repo-name] with the actual name) and extract the 3 most recent discussions (columns: title, points, date).
+
+Step 4 — Shortlist Cards: Write a shortlist card for each of the 2 repos using this format:
+  Name | Stars | What It Does | Why It Stands Out | Community Reception
+
+Call finish with both shortlist cards and a 1-line recommendation on which to engage with first.`,
+    timeoutMs: 420_000,
+    validate: (answer, steps) => ({
+      pass:
+        answer.length > 400 &&
+        steps >= 10 &&
+        contains(answer, "star", "stars") &&
+        contains(answer, "shortlist", "recommend", "community", "github"),
+      reason: "Should discover AI repos, deep-dive 2 picks, check community reception, and output shortlist cards",
+    }),
+  },
+
   // ─── Tier 6: Creative agent workflows ────────────────────────────────────────
 
   {

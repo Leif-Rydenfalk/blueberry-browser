@@ -129,6 +129,81 @@ export const DELEGATE_TASK_TOOL: McpToolSchema = {
   },
 };
 
+// ---- Blueberry-specific tool: delegate_workflow ----
+
+export interface DelegateWorkflowStep {
+  readonly name: string;
+  readonly task: string;
+  // Step names whose answers to inject; defaults to all previous steps.
+  readonly dependsOn?: ReadonlyArray<string>;
+}
+
+export interface DelegateWorkflowArgs {
+  readonly steps: ReadonlyArray<DelegateWorkflowStep>;
+  readonly context?: string;
+}
+
+export interface DelegateWorkflowStepResult {
+  readonly name: string;
+  readonly status: "completed" | "error" | "aborted";
+  readonly answer: string | null;
+  readonly stepCount: number;
+  readonly error?: string;
+}
+
+export interface DelegateWorkflowResult {
+  readonly workflowId: string;
+  readonly status: "completed" | "partial" | "error";
+  readonly steps: ReadonlyArray<DelegateWorkflowStepResult>;
+  readonly finalAnswer: string | null;
+  readonly totalStepCount: number;
+  readonly error?: string;
+}
+
+export const DELEGATE_WORKFLOW_TOOL: McpToolSchema = {
+  name: "delegate_workflow",
+  description:
+    "Execute a structured multi-step workflow across multiple web apps. Each step runs sequentially in a real browser; answers from earlier steps are automatically passed as context to later steps. Ideal for cross-app workflows: inbox + calendar briefs, meeting prep from LinkedIn + Salesforce, lead enrichment across sheets + profiles, conference discovery + Notion shortlists.",
+  inputSchema: {
+    type: "object",
+    required: ["steps"],
+    properties: {
+      steps: {
+        type: "array",
+        description:
+          "Steps to execute in order. Each step's answer becomes context for subsequent steps.",
+        minItems: 2,
+        maxItems: 10,
+        items: {
+          type: "object",
+          required: ["name", "task"],
+          properties: {
+            name: {
+              type: "string",
+              description: "Unique step identifier used for context injection (e.g. 'gmail', 'calendar', 'synthesis')",
+            },
+            task: {
+              type: "string",
+              description: "Plain-English instruction for this step.",
+            },
+            dependsOn: {
+              type: "array",
+              items: { type: "string" },
+              description:
+                "Step names whose answers to inject as context. Defaults to all previous steps.",
+            },
+          },
+        },
+      },
+      context: {
+        type: "string",
+        description:
+          "Optional shared background for all steps (user preferences, company name, date, etc.).",
+      },
+    },
+  },
+};
+
 // ---- IPC payloads (main → sidebar) ----
 
 export interface McpStatus {

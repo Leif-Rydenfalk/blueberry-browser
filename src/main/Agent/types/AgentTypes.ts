@@ -169,7 +169,35 @@ export type AgentTaskProfile =
   | "quick"
   | "repetitive"
   | "communication"
-  | "research";
+  | "research"
+  | "pipeline";
+
+// ─── Workflow types (multi-step, cross-app delegation) ────────────────────────
+
+export interface WorkflowStep {
+  readonly name: string;
+  readonly task: string;
+  // Names of previous steps whose answers to inject as context.
+  // When omitted all previous steps' answers are injected.
+  readonly dependsOn?: ReadonlyArray<string>;
+}
+
+export interface WorkflowStepResult {
+  readonly name: string;
+  readonly status: "completed" | "error" | "aborted";
+  readonly answer: string | null;
+  readonly stepCount: number;
+  readonly error?: string;
+}
+
+export interface WorkflowResult {
+  readonly workflowId: string;
+  readonly status: "completed" | "partial" | "error";
+  readonly steps: ReadonlyArray<WorkflowStepResult>;
+  readonly finalAnswer: string | null;
+  readonly totalStepCount: number;
+  readonly error?: string;
+}
 
 export type ActionParamsMap = {
   navigate: NavigateParams;

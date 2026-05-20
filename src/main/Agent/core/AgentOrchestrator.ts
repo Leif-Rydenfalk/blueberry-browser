@@ -11,6 +11,9 @@ import type {
   ApprovalRequest,
   ScriptReviewRequest,
   ScriptReviewResolution,
+  WorkflowResult,
+  WorkflowStep,
+  WorkflowStepResult,
 } from "../types/AgentTypes";
 import { SingleTabStrategy } from "../strategies/SingleTabStrategy";
 import { McpAgentRunner } from "../mcp/McpAgentRunner";
@@ -330,6 +333,95 @@ export class AgentOrchestrator {
     });
   }
 
+  // Run a structured multi-step workflow. Each step is a runOneShot call;
+  // answers from completed steps are injected as context into subsequent steps.
+  async runWorkflow(
+    steps: ReadonlyArray<WorkflowStep>,
+    sharedContext?: string,
+  ): Promise<WorkflowResult> {
+    const workflowId = uuidv4();
+    const stepResults: WorkflowStepResult[] = [];
+
+    for (const step of steps) {
+      const contextBlock = this.buildWorkflowContext(step, stepResults, sharedContext);
+      const fullTask = contextBlock ? `${step.task}\n\n${contextBlock}` : step.task;
+
+      try {
+        const runResult = await this.runOneShot(fullTask);
+        const stepStatus: WorkflowStepResult["status"] =
+          runResult.status === "completed"
+            ? "completed"
+            : runResult.status === "paused"
+              ? "aborted"
+              : "error";
+        stepResults.push({
+          name: step.name,
+          status: stepStatus,
+          answer: runResult.answer,
+          stepCount: runResult.steps.length,
+          error: stepStatus !== "completed" ? (runResult.answer ?? "Step failed") : undefined,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[AgentOrchestrator] Workflow step "${step.name}" failed:`, message);
+        stepResults.push({
+          name: step.name,
+          status: "error",
+          answer: null,
+          stepCount: 0,
+          error: message,
+        });
+        // Continue remaining steps — later steps can synthesize partial data
+      }
+    }
+
+    const allCompleted = stepResults.every((r) => r.status === "completed");
+    const anyCompleted = stepResults.some((r) => r.status === "completed");
+    const status: WorkflowResult["status"] = allCompleted
+      ? "completed"
+      : anyCompleted
+        ? "partial"
+        : "error";
+
+    // Last completed step's answer is the primary output
+    const finalAnswer =
+      [...stepResults].reverse().find((r) => r.answer !== null)?.answer ?? null;
+
+    return {
+      workflowId,
+      status,
+      steps: stepResults,
+      finalAnswer,
+      totalStepCount: stepResults.reduce((sum, r) => sum + r.stepCount, 0),
+    };
+  }
+
+  private buildWorkflowContext(
+    step: WorkflowStep,
+    completed: ReadonlyArray<WorkflowStepResult>,
+    sharedContext?: string,
+  ): string {
+    if (completed.length === 0 && !sharedContext) return "";
+
+    const parts: string[] = [];
+
+    if (sharedContext) {
+      parts.push(`Background context:\n${sharedContext}`);
+    }
+
+    const deps = step.dependsOn ?? completed.map((s) => s.name);
+    const relevant = completed.filter((s) => deps.includes(s.name) && s.answer !== null);
+
+    if (relevant.length > 0) {
+      parts.push(
+        "Results from previous steps:\n" +
+          relevant.map((r) => `--- ${r.name} ---\n${r.answer}`).join("\n\n"),
+      );
+    }
+
+    return parts.join("\n\n");
+  }
+
   private extractFinishAnswer(steps: ReadonlyArray<AgentStep>): string | null {
     for (let i = steps.length - 1; i >= 0; i--) {
       const step = steps[i];
@@ -374,6 +466,11 @@ export class AgentOrchestrator {
       return "repetitive";
     }
 
+    // Multi-app pipeline: explicit step numbering or combining 2+ distinct services
+    if (this.isPipelineGoal(goal)) {
+      return "pipeline";
+    }
+
     if (
       this.hasAny(goal, [
         "inbox",
@@ -404,6 +501,20 @@ export class AgentOrchestrator {
     }
 
     return "quick";
+  }
+
+  private isPipelineGoal(goal: string): boolean {
+    // Explicit sequential-step language
+    const hasStepNumbers = /step\s*[123]|first[,\s].*then[,\s].*finally/i.test(goal);
+
+    // Two or more distinct web apps mentioned together
+    const appMentions = [
+      "gmail", "google calendar", "google sheets", "google drive",
+      "slack", "notion", "salesforce", "linkedin", "hubspot",
+      "airtable", "jira", "github", "trello",
+    ].filter((app) => goal.toLowerCase().includes(app));
+
+    return hasStepNumbers || appMentions.length >= 2;
   }
 
   private isDataCollectionGoal(goal: string): boolean {
@@ -445,6 +556,8 @@ export class AgentOrchestrator {
     switch (profile) {
       case "repetitive":
         return 300;
+      case "pipeline":
+        return 120;
       case "communication":
         return 180;
       case "research":
@@ -459,6 +572,8 @@ export class AgentOrchestrator {
     switch (profile) {
       case "repetitive":
         return 60 * 60 * 1000;
+      case "pipeline":
+        return 45 * 60 * 1000;
       case "communication":
         return 45 * 60 * 1000;
       case "research":
