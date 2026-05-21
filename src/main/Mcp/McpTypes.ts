@@ -124,7 +124,7 @@ export interface DelegateTaskResult {
 export const DELEGATE_TASK_TOOL: McpToolSchema = {
   name: "delegate_task",
   description:
-    "Delegate a web-UI task to Blueberry Browser. The task is executed in a real browser as if a human were doing it — clicks, typing, scrolling, form fills. Use natural language: \"Message 'hi' to John Doe on LinkedIn\", \"Send a Gmail to alice@example.com with the body ...\", \"Pull the last 50 transactions from my bank dashboard into a CSV\". Returns the agent's final answer plus the session id. Supports optional `attachments` for passing URLs to navigate to or file content to use as context.",
+    "Delegate any web-UI task to Blueberry Browser — single-app or multi-app, simple or multi-step. The task runs in a real browser as if a human were doing it: clicks, typing, scrolling, form fills, navigation across multiple sites. Describe the full job in plain English and the agent handles all sequencing internally.\n\nSingle-app examples: \"Message 'hi' to John Doe on LinkedIn\", \"Send a Gmail to alice@example.com with body ...\", \"Pull the last 50 transactions from my bank dashboard into a CSV\".\n\nMulti-app examples: \"Check Gmail and Google Calendar for today — summarise urgent emails and list all meetings\", \"Read my Slack unreads, then open the GitHub PR linked in the most recent message\", \"Look up the attendees on tomorrow's Google Calendar invite, then find each one on LinkedIn and draft a briefing\".\n\nReturns the agent's final combined answer plus the session id. Supports optional `attachments` for passing URLs to navigate to or file content to use as context.",
   inputSchema: {
     type: "object",
     required: ["task"],

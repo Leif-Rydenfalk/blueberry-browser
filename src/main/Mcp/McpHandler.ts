@@ -94,7 +94,11 @@ export class McpHandler {
   }
 
   listTools(): ReadonlyArray<McpToolSchema> {
-    return [DELEGATE_TASK_TOOL, DELEGATE_WORKFLOW_TOOL, STEER_TASK_TOOL, GET_TASK_STATUS_TOOL];
+    // delegate_workflow is intentionally omitted — delegate_task handles multi-app
+    // and multi-step workflows natively within a single agent session. Exposing
+    // both tools causes orchestrating AIs to decompose tasks unnecessarily into
+    // separate sessions, each with its own step budget and no shared browser state.
+    return [DELEGATE_TASK_TOOL, STEER_TASK_TOOL, GET_TASK_STATUS_TOOL];
   }
 
   getTotalRequests(): number {

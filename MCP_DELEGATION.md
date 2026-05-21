@@ -39,14 +39,12 @@ Blueberry binds a localhost port at startup (default **7777**, override with
 |----------|---------|-------------|
 | `request` | `McpRequestEvent` | Task received and queued |
 | `progress` | `McpProgressEvent` | One event per agent action — fires continuously during execution |
-| `workflow-step` | `McpWorkflowStepEvent` | One event per workflow step — carries the step's answer immediately after it completes |
 | `complete` | `McpCompletionEvent` | Full task finished — carries the final answer |
 | `login-required` | `McpLoginRequiredEvent` | Agent hit a login wall, blocked until human signs in |
 
-`progress` events fire for every individual agent action (navigate, click, extractSchema, etc.).
-`workflow-step` events fire once per `delegate_workflow` step and carry the step's answer — subscribe
-to these to receive partial answers in real time rather than waiting for the full HTTP response on
-long-running workflows. Both carry the `taskId` so you can correlate with the original request.
+`progress` events fire for every individual agent action (navigate, click, extractSchema, etc.) and
+carry the `taskId` so you can correlate with the original request. For multi-app tasks you can watch
+`actionType` and `reasoning` to track which app the agent is currently working in.
 
 A caller that only wants the final answer can ignore SSE and just `POST /mcp`
 with `tools/call`.
@@ -128,19 +126,38 @@ Returns:
 
 ---
 
-### `delegate_task` — single-step delegation
+### `delegate_task` — the single delegation primitive
+
+Use this for everything — single-app tasks, multi-app pipelines, and cross-app workflows.
+The Blueberry agent handles all sequencing internally within one browser session and returns a
+single combined answer at the end. You do not need to decompose the task into steps.
 
 ```jsonc
 {
   "name": "delegate_task",
-  "description": "Delegate a web-UI task to Blueberry Browser. Executed in a real browser as if a human were doing it. Use natural language.",
+  "description": "Delegate any web-UI task to Blueberry Browser. Handles single-app and multi-app workflows natively. Use plain English — describe the full job and the agent sequences it internally.",
   "inputSchema": {
     "type": "object",
     "required": ["task"],
     "properties": {
       "task": {
         "type": "string",
-        "description": "Plain-English instruction. Examples: \"Message 'hi' to John Doe on LinkedIn\", \"Send a Gmail to alice@example.com with the body ...\"."
+        "description": "Plain-English instruction for the full job. Single-app: \"Send a Gmail to alice@example.com with body ...\". Multi-app: \"Check Gmail and Google Calendar for today, then send a summary to my WhatsApp +46729782220\"."
+      },
+      "attachments": {
+        "type": "array",
+        "description": "Optional URLs to navigate to or file content to use as context.",
+        "items": {
+          "type": "object",
+          "required": ["type", "name"],
+          "properties": {
+            "type":     { "type": "string", "enum": ["url", "file"] },
+            "name":     { "type": "string" },
+            "url":      { "type": "string" },
+            "content":  { "type": "string" },
+            "mimeType": { "type": "string" }
+          }
+        }
       }
     }
   }
@@ -153,91 +170,20 @@ Output envelope:
 {
   "sessionId": "uuid",
   "status":    "completed" | "error" | "aborted",
-  "answer":    "string | null",
-  "stepCount": 12,
-  "url":       "https://final.url",
+  "answer":    "string | null",   // combined answer covering all apps in the task
+  "stepCount": 24,
+  "url":       null,
   "error":     "string | undefined"
 }
 ```
-
----
-
-### `delegate_workflow` — multi-step, cross-app delegation
-
-Use this when a task requires sequential work across multiple applications —
-each step's answer is automatically injected as context into later steps.
-
-```jsonc
-{
-  "name": "delegate_workflow",
-  "description": "Execute a structured multi-step workflow across multiple web apps. Steps run sequentially; earlier results are passed as context to later steps.",
-  "inputSchema": {
-    "type": "object",
-    "required": ["steps"],
-    "properties": {
-      "steps": {
-        "type": "array",
-        "minItems": 2,
-        "maxItems": 10,
-        "items": {
-          "type": "object",
-          "required": ["name", "task"],
-          "properties": {
-            "name":      { "type": "string", "description": "Step identifier, e.g. 'gmail', 'calendar', 'synthesis'" },
-            "task":      { "type": "string", "description": "Plain-English instruction" },
-            "dependsOn": { "type": "array", "items": { "type": "string" }, "description": "Step names to inject as context (default: all previous steps)" }
-          }
-        }
-      },
-      "context": { "type": "string", "description": "Optional shared background for all steps" }
-    }
-  }
-}
-```
-
-Output envelope:
-
-```jsonc
-{
-  "workflowId":      "uuid",
-  "status":          "completed" | "partial" | "error",
-  "steps": [
-    { "name": "gmail",    "status": "completed", "answer": "...", "stepCount": 12 },
-    { "name": "calendar", "status": "completed", "answer": "...", "stepCount": 8  },
-    { "name": "synthesis","status": "completed", "answer": "...", "stepCount": 4  }
-  ],
-  "finalAnswer":     "string | null",   // last completed step's answer
-  "totalStepCount":  24,
-  "error":           "string | undefined"
-}
-```
-
-`status` is `"partial"` when at least one step succeeded but not all — the
-workflow continues through failures so later synthesis steps can work with
-partial data.
 
 #### Example — daily attention brief
 
 ```jsonc
 {
-  "tool": "delegate_workflow",
+  "tool": "delegate_task",
   "arguments": {
-    "context": "User: Leif. Company: Acme Corp. Today is 2026-05-20.",
-    "steps": [
-      {
-        "name": "gmail",
-        "task": "Open Gmail at https://mail.google.com. If not logged in use waitForApproval. Summarise the 10 most recent unread emails: sender, subject, one-line summary, urgency (high/medium/low)."
-      },
-      {
-        "name": "calendar",
-        "task": "Open Google Calendar at https://calendar.google.com. If not logged in use waitForApproval. List all events for today and tomorrow: time, title, attendees."
-      },
-      {
-        "name": "synthesis",
-        "task": "Using the Gmail and Calendar summaries provided in your context, write a 'What Needs My Attention Today' brief with sections: Urgent Emails, Meetings Today, Meetings Tomorrow, Action Items.",
-        "dependsOn": ["gmail", "calendar"]
-      }
-    ]
+    "task": "Open Gmail (https://mail.google.com) and summarise the 10 most recent unread emails: sender, subject, urgency. Then open Google Calendar (https://calendar.google.com) and list all events for today and tomorrow. Return a single combined 'What Needs My Attention Today' brief."
   }
 }
 ```
@@ -246,20 +192,10 @@ partial data.
 
 ```jsonc
 {
-  "steps": [
-    {
-      "name": "calendar",
-      "task": "Open Google Calendar tomorrow's view. List external attendees (non-company email domains) for each meeting."
-    },
-    {
-      "name": "linkedin",
-      "task": "For each external attendee found in the context, search LinkedIn for their profile. Extract: current title, company, recent posts or activity. Use waitForApproval if login is needed."
-    },
-    {
-      "name": "prep-doc",
-      "task": "Using the calendar and LinkedIn data in context, write a one-page prep document in Notion (https://notion.so). Create a new page titled 'Meeting Prep - [date]'. For each attendee include: name, title, talking points, recent context."
-    }
-  ]
+  "tool": "delegate_task",
+  "arguments": {
+    "task": "Open Google Calendar and find tomorrow's meetings. For each external attendee (non-company email), find their LinkedIn profile and note their current title and recent activity. Then open Notion (https://notion.so) and create a new page titled 'Meeting Prep - [date]' with a briefing for each attendee."
+  }
 }
 ```
 
@@ -267,20 +203,10 @@ partial data.
 
 ```jsonc
 {
-  "steps": [
-    {
-      "name": "sheet-read",
-      "task": "Open the Google Sheet at https://docs.google.com/spreadsheets/d/[ID]. Extract all rows with name and company (columns A and B). Use waitForApproval if login is needed."
-    },
-    {
-      "name": "linkedin-enrich",
-      "task": "For each lead in the context, search LinkedIn for their profile URL and current job title. Work through the list row by row."
-    },
-    {
-      "name": "sheet-write",
-      "task": "Return to the Google Sheet. Fill in the LinkedIn URL (column C) and job title (column D) for each row using the data found in the previous step."
-    }
-  ]
+  "tool": "delegate_task",
+  "arguments": {
+    "task": "Open the Google Sheet at https://docs.google.com/spreadsheets/d/[ID]. Extract all rows (name in column A, company in column B). For each row, search LinkedIn for their profile URL and current job title. Then return to the sheet and fill in LinkedIn URL (column C) and job title (column D) for each row."
+  }
 }
 ```
 
@@ -297,38 +223,16 @@ partial data.
   "stepNum":     14,            // 1-based counter
   "maxSteps":    60,            // step budget for this run
   "actionType":  "extractSchema",
-  "reasoning":   "gmail_inbox_list now has 48 rows — Gmail ✓. Calendar still pending.",
+  "reasoning":   "gmail_inbox_list now has 48 rows — Gmail ✓. Navigating to Calendar next.",
   "status":      "success",     // "running" | "success" | "error"
   "currentUrl":  null,
   "timestamp":   1716300047000
 }
 ```
 
-The calling agent should watch for `status: "error"` on repeated steps and
-consider calling `steer_task` to redirect. Watch `stepNum / maxSteps` to
-know how much budget remains.
-
-### `workflow-step` — per-workflow-step completion
-
-Fires once per step in a `delegate_workflow` call, immediately after that step's agent run
-finishes. Carries the step answer so you have usable partial data before the full HTTP response.
-
-```jsonc
-{
-  "taskId":              "uuid",        // correlates with the delegate_workflow request
-  "workflowStepName":    "gmail",       // the step's name field
-  "workflowStepIndex":   0,             // 0-based index
-  "totalWorkflowSteps":  3,             // total steps in this workflow
-  "status":             "completed",    // "completed" | "error" | "aborted"
-  "answer":             "# Gmail...",   // the step's final answer (may be null on error)
-  "agentStepCount":      16,            // number of agent actions this step took
-  "completedAt":         1716300100000
-}
-```
-
-For long-running workflows (Gmail + Calendar + Slack briefs can run 20+ minutes), subscribing
-to `workflow-step` events lets you display partial answers to the user as each source completes
-rather than waiting for the full response.
+Watch `actionType` and `reasoning` to track which app the agent is currently working in during
+multi-app tasks. Watch `status: "error"` on repeated steps and consider calling `steer_task` to
+redirect. Watch `stepNum / maxSteps` to know how much budget remains.
 
 ---
 
@@ -386,4 +290,4 @@ one-shot run); the MCP handler reuses it as-is. No new agent code paths.
 
 ---
 
-*Last updated: 2026-05-20*
+*Last updated: 2026-05-21*
