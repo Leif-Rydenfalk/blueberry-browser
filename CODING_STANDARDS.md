@@ -220,18 +220,26 @@ interface TabStrategy {
 }
 ```
 
+`SingleTabStrategy` is the only implementation today. It owns an `ActionExecutor` that translates an `AgentAction` into the underlying Electron `webContents` calls (DOM clicks, key/mouse input, JS eval, screenshots).
+
 ### Agent loop
-`AgentRunner` is the single execution loop. It has zero UI dependencies — it emits events, UI subscribes. `AgentOrchestrator` manages session lifecycle, classifies task profiles, and routes callbacks.
+`McpAgentRunner` is the single execution loop. It uses Vercel AI SDK v5 `generateText` with native tool use and `stopWhen` — the model emits tool calls, the runner dispatches them, and the loop continues until the model issues `finish` or a stop condition fires. The runner has zero UI dependencies — it emits step events, UI subscribes. `AgentOrchestrator` manages session lifecycle, classifies task profiles, and routes callbacks.
+
+The system prompt is built inside the runner (`McpAgentRunner.buildSystemPrompt`). Chat-side (non-agent) prompts are built separately in `LLMClient.buildSystemPrompt`. Keep these two prompt surfaces distinct — agent context and chat context have different needs.
+
+### Tool registry
+Agent tools (the model-visible action surface) are declared in `McpAgentRunner.buildTools()`. Each tool has a Zod/JSON `inputSchema` and an `execute` closure that calls `this.runTool({ type, params, reasoning })` — which then dispatches through the strategy and executor.
 
 ### Extending actions
 To add a new browser action:
-1. Add the type to `ActionType` union in `AgentTypes.ts`
-2. Add its params interface and add to `ActionParamsMap`
+1. Add the type to the `ActionType` union in `AgentTypes.ts`
+2. Add its params interface and entry in `ActionParamsMap`
 3. Handle it in `ActionExecutor.dispatch()`
-4. Add it to the system prompt's action list in `systemPrompts.ts`
+4. Add a tool entry to `McpAgentRunner.buildTools()` — schema + `execute` that calls `runTool`
+5. Update the tool description in `buildSystemPrompt` only if the model needs extra usage guidance
 
 ### Task classification
-`AgentOrchestrator.classifyTask()` maps the user's goal string to a `AgentTaskProfile` which sets `maxSteps` and `maxDurationMs`. Add new profiles here rather than hardcoding numbers elsewhere.
+`AgentOrchestrator.classifyTask()` maps the user's goal string to an `AgentTaskProfile` which sets `maxSteps` and `maxDurationMs`. Add new profiles here rather than hardcoding numbers elsewhere.
 
 ---
 
