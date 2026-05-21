@@ -2,6 +2,8 @@
 
 > A real browser that other AI agents can operate like a human.
 
+This project started as a two-week engineering challenge set by [Strawberry](https://github.com/strawberry-browser/strawberry) — build a feature that makes Blueberry superior and more promising than Strawberry. It grew into a personal tool I actually use daily to run my businesses.
+
 Blueberry is an Electron desktop browser with an AI agent built in. Its primary purpose is to act as the **web-action runtime** for an agentic stack — other agents (Claude projects, n8n flows, cron jobs, anything that speaks MCP) hand it natural-language tasks, and Blueberry performs them in a real, logged-in browser as if a person were sitting at the keyboard.
 
 ---
@@ -268,42 +270,14 @@ See [`TESTING.md`](./TESTING.md) for the full test catalogue (18 tasks across 7 
 
 ---
 
-## Where We're Taking This
+## What's Next
 
-### Immediate next (Track 3 — Background Execution)
+The shipped features are all in [`ROADMAP.md`](./ROADMAP.md). The one remaining track that isn't yet built:
 
-Right now the agent runs in the active foreground tab. While it works, the browser is locked — you can't browse while a 20-minute lead enrichment runs. Track 3 spawns a hidden off-screen `WebContentsView` per run so the agent works in the background and you keep the foreground for yourself. Combine this with the bulk runner and you get N parallel rows running concurrently against hidden tabs.
+**Track 3 — Background Execution.** Right now the agent runs in the active foreground tab — while it works, the browser is locked. The fix is spawning a hidden off-screen `WebContentsView` per run so the agent works in the background and you keep the foreground. Combined with the bulk runner this enables N parallel rows against hidden tabs without interrupting normal browsing.
 
-### Near-term
-
-- **Persistent selector healing**: when the agent recovers a broken CSS selector during workflow replay, write the new selector back to the workflow file so the next run skips the LLM round-trip entirely.
-- **Concurrent bulk rows**: once background views land, run K rows in parallel (configurable, default 3) instead of serially.
-- **`list_workflows` and `run_workflow` MCP tools**: let external agents hit saved, deterministic recordings by ID instead of always describing the task in natural language.
-- **Resumable bulk runs**: surface a "retry failed rows" button when a mid-run failure occurs.
-- **Auth token for the HTTP endpoint**: v1 binds `127.0.0.1` only. A bearer token lets Blueberry be safely exposed to trusted remote callers on a local network.
-
-### Medium-term
-
-- **Approval audit log**: persist `{ actionId, decision, user, timestamp }` to disk. Required for any compliance-sensitive deployment.
-- **Per-step approval policy**: let a saved workflow declare "always require approval at this step" for clicks that aren't caught by the keyword classifier.
-- **iframe recording**: the tab preload currently only sees main-frame events. A separate injection inside same-origin iframes catches payment widgets and embedded forms.
-- **Per-page scraper caching**: hash `(URL pattern + extractSchema schema)` and persist the generated JS expression. First call costs an LLM round-trip; every subsequent call on the same page layout is a pure JS eval.
-
-### Long-term vision
-
-Blueberry's end state is a **personal browser agent runtime** that sits alongside every knowledge worker's existing agentic stack:
-
-- **The orchestrator** (Claude, Hermes, GPT, whatever) decides what needs to happen.
-- **Blueberry** does the web-UI work — the part that requires a real logged-in browser, a human hand, and a human eye on destructive actions.
-- **The human** stays in control of irreversible steps: sends, payments, deletions, publishes.
-
-This makes automated web work safe enough to run unattended for the 95% of steps that are read-only or low-stakes, while keeping a human in the loop for the 5% that matter.
-
-The two things that will define whether that vision lands:
-
-1. **Reliability** — the agent needs to complete real tasks (not toy demos) on real sites without human babysitting. This is a product quality bar, not a feature.
-2. **Reach** — the MCP surface needs to be solid enough that other agent frameworks (LangChain, AutoGen, CrewAI, n8n, plain cron scripts) treat Blueberry as a first-class tool they can depend on.
+Beyond that, the interesting open problems are reliability on the long tail of real sites (SPAs, iframes, anti-bot pages) and making the MCP surface stable enough that other tools can depend on it without babysitting. Both are engineering quality work more than feature work.
 
 ---
 
-*Built by Leif Rydenfalk — ledamecrydenfalk@gmail.com*
+*Built by Leif Rydenfalk — ledamecrydenfalk@gmail.com*   
