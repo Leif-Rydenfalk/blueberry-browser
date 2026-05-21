@@ -143,23 +143,31 @@ const MarkdownMessage: React.FC<{ content: string }> = ({ content }) => (
   </div>
 );
 
-const getActionSummary = (step: AgentStep) => {
+// IPC payload values are unknown at the renderer boundary. This narrows to
+// string at the access site so callers don't need type assertions.
+const asStr = (params: Record<string, unknown>, key: string): string => {
+  const v = params[key];
+  return typeof v === "string" ? v : "";
+};
+
+const getActionSummary = (step: AgentStep): string => {
+  const { params } = step.action;
   switch (step.action.type) {
     case "navigate":
-      return `Navigate to ${(step.action.params as any).url || "page"}`;
+      return `Navigate to ${asStr(params, "url") || "page"}`;
     case "click":
-      return `Click ${(step.action.params as any).selector || "coordinates"}`;
+      return `Click ${asStr(params, "selector") || "coordinates"}`;
     case "type":
-      return `Type "${(step.action.params as any).text || ""}"`;
+      return `Type "${asStr(params, "text")}"`;
     case "key":
-      return `Key ${(step.action.params as any).key || ""}`;
+      return `Key ${asStr(params, "key")}`;
     case "scroll":
-      return `Scroll ${(step.action.params as any).direction || ""}`;
+      return `Scroll ${asStr(params, "direction")}`;
     case "extract":
     case "extractSchema":
-      return `Extract ${(step.action.params as any).name || "data"}`;
+      return `Extract ${asStr(params, "name") || "data"}`;
     case "executeScript":
-      return (step.action.params as any).description || "Run script";
+      return asStr(params, "description") || "Run script";
     case "screenshot":
       return "Screenshot";
     case "finish":

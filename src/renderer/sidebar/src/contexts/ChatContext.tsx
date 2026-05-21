@@ -14,6 +14,27 @@ interface Message {
   isStreaming?: boolean;
 }
 
+// Shape of CoreMessage payloads received from main over IPC. Mirrors the AI
+// SDK's CoreMessage subset we actually consume — content is either a plain
+// string or an array of parts where text is the only kind we render.
+interface CoreMessageLike {
+  readonly role: "user" | "assistant";
+  readonly content: string | ReadonlyArray<{ readonly type: string; readonly text?: string }>;
+}
+
+function coreToFrontend(messages: ReadonlyArray<CoreMessageLike>): Message[] {
+  return messages.map((msg, index) => ({
+    id: `msg-${index}`,
+    role: msg.role,
+    content:
+      typeof msg.content === "string"
+        ? msg.content
+        : (msg.content.find((p) => p.type === "text")?.text ?? ""),
+    timestamp: Date.now(),
+    isStreaming: false,
+  }));
+}
+
 interface ChatContextType {
   messages: Message[];
   isLoading: boolean;
@@ -48,22 +69,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     const loadMessages = async () => {
       try {
-        const storedMessages = await window.sidebarAPI.getMessages();
+        const storedMessages =
+          (await window.sidebarAPI.getMessages()) as ReadonlyArray<CoreMessageLike>;
         if (storedMessages && storedMessages.length > 0) {
-          // Convert CoreMessage format to our frontend Message format
-          const convertedMessages = storedMessages.map(
-            (msg: any, index: number) => ({
-              id: `msg-${index}`,
-              role: msg.role,
-              content:
-                typeof msg.content === "string"
-                  ? msg.content
-                  : msg.content.find((p: any) => p.type === "text")?.text || "",
-              timestamp: Date.now(),
-              isStreaming: false,
-            }),
-          );
-          setMessages(convertedMessages);
+          setMessages(coreToFrontend(storedMessages));
         }
       } catch (error) {
         console.error("Failed to load messages:", error);
@@ -141,22 +150,12 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     };
 
-    // Listen for message updates from main process
-    const handleMessagesUpdated = (updatedMessages: any[]) => {
-      // Convert CoreMessage format to our frontend Message format
-      const convertedMessages = updatedMessages.map(
-        (msg: any, index: number) => ({
-          id: `msg-${index}`,
-          role: msg.role,
-          content:
-            typeof msg.content === "string"
-              ? msg.content
-              : msg.content.find((p: any) => p.type === "text")?.text || "",
-          timestamp: Date.now(),
-          isStreaming: false,
-        }),
+    // Listen for message updates from main process. The preload signature
+    // declares `unknown[]` at the IPC boundary; narrow once here.
+    const handleMessagesUpdated = (updatedMessages: unknown[]): void => {
+      setMessages(
+        coreToFrontend(updatedMessages as ReadonlyArray<CoreMessageLike>),
       );
-      setMessages(convertedMessages);
     };
 
     window.sidebarAPI.onChatResponse(handleChatResponse);

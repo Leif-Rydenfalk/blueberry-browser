@@ -67,7 +67,7 @@ The fifth callsite I had flagged — `AgentContext.tsx:21` — turned out NOT to
 
 ---
 
-## 5. ☐ Kill `any` casts in `AgentPanel.tsx:149-162`
+## 5. ☑ Kill `any` casts in `AgentPanel.tsx:149-162`
 
 Seven `(step.action.params as any).field` casts in a single switch. The discriminated `ActionParamsMap` already exists in `AgentTypes.ts`. Narrowing on `step.action.type` makes all the casts unnecessary.
 
@@ -114,7 +114,7 @@ The single biggest file in the codebase, and the largest hygiene risk for a crit
 
 ---
 
-## 7. ☐ Fix `ChatContext.tsx` IPC `any`s
+## 7. ☑ Fix `ChatContext.tsx` IPC `any`s
 
 Lines 55, 61, 148, 154 — `(msg: any)` and `(p: any)` across the IPC boundary. Define a `ChatMessagePayload` interface in `preload/sidebar.d.ts` and use it on both sides.
 
@@ -136,9 +136,9 @@ Lines 55, 61, 148, 154 — `(msg: any)` and `(p: any)` across the IPC boundary. 
 2. Refresh standards §6     (5 min, zero risk)      ☑ commit e09651e
 3. Async I/O                (30 min, low risk)      ☑ commit 30701f1
 4. CSV → papaparse          (45 min, medium risk)   ☑ this commit
-5. AgentPanel any cleanup   (10 min, zero risk)     ☐
+5. AgentPanel any cleanup   (10 min, zero risk)     ☑
 6. McpAgentRunner split     (90 min, medium risk)   ☐
-7. ChatContext any cleanup  (15 min, zero risk)     ☐
+7. ChatContext any cleanup  (15 min, zero risk)     ☑
 ```
 
 Run `npm run typecheck` after each item. Commit between items.
