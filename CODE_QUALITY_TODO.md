@@ -88,29 +88,19 @@ Each `case` already narrows `params` to the matching union member — no casts n
 
 ---
 
-## 6. ☐ Split `McpAgentRunner.ts` (2506 LOC)
+## 6. ☑ Split `McpAgentRunner.ts` (was 2506 LOC, now 2113)
 
-The single biggest file in the codebase, and the largest hygiene risk for a critical reviewer. Currently handles:
+**Scoped to lift the 15 simple `runTool` wrappers only** — the lowest-risk extraction that still yields meaningful hygiene improvement. Tools that legitimately manipulate runner-private state (screenshot, extractSchema, executeScript, loginRequired, waitForApproval, finish) stayed inline because moving them would have required exposing private fields or designing a broad ToolRuntime interface — out of scope for a pre-submission cleanup.
 
-- Generation loop (orchestration)
-- ~15 tool schema declarations (`buildTools`)
-- `BucketStore` data accumulation
-- CSV section formatting (`bucketToCsvSection`)
-- System prompt construction
+**What changed**
+- Created `src/main/Agent/mcp/tools/simpleTools.ts` (412 LOC of pure declarative tool schemas + a factory that takes a `runTool` callback)
+- `ToolResult` type moved there (single source of truth, re-imported by the runner)
+- `McpAgentRunner.buildTools()` now spreads `buildSimpleTools(runTool)` then adds the six complex tools inline
+- Runner dropped from 2506 → 2113 LOC (−16%)
 
-**Proposed split**
-| New file | Contains | LOC target |
-|---|---|---|
-| `src/main/Agent/mcp/McpAgentRunner.ts` | Generation loop + system prompt only | ~700 |
-| `src/main/Agent/mcp/tools/index.ts` (+ per-tool files) | Tool schemas with `execute` closures | ~1000 |
-| `src/main/Agent/mcp/BucketStore.ts` | Bucket accumulation + CSV section formatting | ~500 |
-
-**Approach**
-- Lift `buildTools()` first — easiest, biggest impact
-- Then move `BucketStore` + CSV formatting
-- Keep public API of `McpAgentRunner` unchanged (`AgentOrchestrator` shouldn't need touching)
-
-**Risk:** medium — biggest file change. Run full `npm run typecheck` after each extraction.
+**Future work for a separate pass** (deliberately deferred):
+- Extract `BucketStore` accumulation + `bucketToCsvSection` formatting into its own file
+- Design a `ToolRuntime` interface and move the complex tools out too — needs proper exposure of `emitUpdate`, `pushStep`, `nextStepNum`, etc. rather than ad-hoc private-field reach-through.
 
 ---
 
@@ -137,7 +127,7 @@ Lines 55, 61, 148, 154 — `(msg: any)` and `(p: any)` across the IPC boundary. 
 3. Async I/O                (30 min, low risk)      ☑ commit 30701f1
 4. CSV → papaparse          (45 min, medium risk)   ☑ this commit
 5. AgentPanel any cleanup   (10 min, zero risk)     ☑
-6. McpAgentRunner split     (90 min, medium risk)   ☐
+6. McpAgentRunner split     (90 min, medium risk)   ☑ (scoped — simple tools only)
 7. ChatContext any cleanup  (15 min, zero risk)     ☑
 ```
 
