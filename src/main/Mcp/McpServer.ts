@@ -55,6 +55,11 @@ export class McpServer {
     this.handler.setOnCompletion((event) => {
       this.broadcast("complete", event);
     });
+    // Per-step progress — one event per agent action so callers can track
+    // execution in real time and detect when partial data is usable.
+    this.handler.setOnProgress((event) => {
+      this.broadcast("progress", event);
+    });
   }
 
   setOnStatusChanged(cb: (status: McpStatus) => void): void {

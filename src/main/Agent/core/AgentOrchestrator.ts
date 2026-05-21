@@ -236,12 +236,24 @@ export class AgentOrchestrator {
     return true;
   }
 
+  // Inject a steering message into the running agent. The message surfaces in
+  // the agent's next tool result so it can adjust direction without the run
+  // being interrupted or restarted. Returns true if an active runner received it.
+  steerAgent(message: string): boolean {
+    if (!this.activeRunner) return false;
+    this.activeRunner.addSteerMessage(message);
+    return true;
+  }
+
   // Run a single goal end-to-end and resolve with the agent's final answer.
   // Used by bulk workflow execution and MCP delegation.
   // Workflows pass a shared bucketStore so extracted rows survive between steps.
+  // onStepUpdate fires for each agent step — MCP handler uses this to stream
+  // progress events to SSE subscribers.
   async runOneShot(
     goal: string,
     sharedBucketStore?: BucketStore,
+    onStepUpdate?: (update: AgentStreamUpdate) => void,
   ): Promise<{
     sessionId: string;
     status: AgentSession["status"];
@@ -304,10 +316,50 @@ export class AgentOrchestrator {
     });
 
     return new Promise((resolve) => {
+      let settled = false;
+
+      // Resolve exactly once — prevents double-resolve from timeout + normal completion
+      const resolveOnce = (result: {
+        sessionId: string;
+        status: AgentSession["status"];
+        answer: string | null;
+        steps: AgentStep[];
+        bucketSummaries: ReadonlyArray<CollectedBucketSummary>;
+      }): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeoutHandle);
+        this.activeRunner = null;
+        resolve(result);
+      };
+
+      // Enforce maxDurationMs — abort the runner when the wall-clock budget is
+      // exhausted so the MCP caller always gets a response.
+      const timeoutMs = config.maxDurationMs ?? 10 * 60 * 1000;
+      const timeoutHandle = setTimeout(() => {
+        console.error(
+          `[AgentOrchestrator] runOneShot timed out after ${timeoutMs}ms — aborting runner`,
+        );
+        runner.abort();
+        const sess = this.sessions.get(sessionId);
+        if (sess) {
+          sess.status = "error";
+          sess.updatedAt = Date.now();
+        }
+        resolveOnce({
+          sessionId,
+          status: "error",
+          answer: `Agent run timed out after ${Math.round(timeoutMs / 1000)}s`,
+          steps: sess?.steps ?? [],
+          bucketSummaries: runner.getSummaryOfCollected(),
+        });
+      }, timeoutMs);
+
       runner.setCallbacks(
         (update) => {
           const enriched = { ...update, sessionId };
           this.onStreamUpdate?.(enriched);
+          onStepUpdate?.(enriched);
           const sess = this.sessions.get(sessionId);
           if (sess) {
             sess.currentStep = update.step;
@@ -331,9 +383,8 @@ export class AgentOrchestrator {
             sess.steps = steps;
             sess.updatedAt = Date.now();
           }
-          this.activeRunner = null;
           const answer = this.extractFinishAnswer(steps);
-          resolve({
+          resolveOnce({
             sessionId,
             status: "completed",
             answer,
@@ -347,8 +398,7 @@ export class AgentOrchestrator {
             sess.status = "error";
             sess.updatedAt = Date.now();
           }
-          this.activeRunner = null;
-          resolve({
+          resolveOnce({
             sessionId,
             status: "error",
             answer: error,
@@ -365,8 +415,7 @@ export class AgentOrchestrator {
           sess.status = "error";
           sess.updatedAt = Date.now();
         }
-        this.activeRunner = null;
-        resolve({
+        resolveOnce({
           sessionId,
           status: "error",
           answer: error instanceof Error ? error.message : String(error),
@@ -379,9 +428,12 @@ export class AgentOrchestrator {
 
   // Run a structured multi-step workflow. Each step is a runOneShot call;
   // answers from completed steps are injected as context into subsequent steps.
+  // onStepUpdate, when provided, is forwarded to every runOneShot call so the
+  // MCP handler can stream per-step progress across all workflow steps.
   async runWorkflow(
     steps: ReadonlyArray<WorkflowStep>,
     sharedContext?: string,
+    onStepUpdate?: (update: AgentStreamUpdate) => void,
   ): Promise<WorkflowResult> {
     const workflowId = uuidv4();
     const stepResults: WorkflowStepResult[] = [];
@@ -396,7 +448,7 @@ export class AgentOrchestrator {
       const fullTask = contextBlock ? `${step.task}\n\n${contextBlock}` : step.task;
 
       try {
-        const runResult = await this.runOneShot(fullTask, sharedBuckets);
+        const runResult = await this.runOneShot(fullTask, sharedBuckets, onStepUpdate);
         const stepStatus: WorkflowStepResult["status"] =
           runResult.status === "completed"
             ? "completed"

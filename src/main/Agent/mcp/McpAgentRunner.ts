@@ -113,6 +113,7 @@ export class McpAgentRunner {
     | null = null;
   private onLoginRequired: ((request: LoginRequiredRequest) => void) | null =
     null;
+  private steerMessages: string[] = [];
 
   constructor(
     private readonly config: AgentConfig,
@@ -231,6 +232,49 @@ export class McpAgentRunner {
   sendUserMessage(_message: string): void {
     // In the tool-use model, mid-run user messages are not supported by generateText.
     // Future enhancement: interrupt and inject a user turn into the conversation.
+  }
+
+  // Queue a message from the MCP caller to be injected into the agent's next
+  // tool result. The agent sees it as part of the page context and can
+  // redirect its actions accordingly. Safe to call from any thread.
+  addSteerMessage(message: string): void {
+    this.steerMessages.push(message);
+  }
+
+  private flushSteerMessages(): string | null {
+    if (this.steerMessages.length === 0) return null;
+    const msgs = this.steerMessages.splice(0);
+    return msgs.join("\n");
+  }
+
+  // Returns a budget warning string when the agent is approaching its step
+  // limit, or null when well within budget. Injected into tool results so the
+  // agent knows to wrap up soon.
+  private getBudgetWarning(): string | null {
+    const remaining = this.config.maxSteps - this.stepNum;
+    const pct = this.stepNum / this.config.maxSteps;
+    if (pct >= 0.95) {
+      return `⚠️ CRITICAL: Only ${remaining} steps remaining of your ${this.config.maxSteps}-step budget. You MUST call finish() NOW with whatever data you have — do NOT start any new extraction or navigation.`;
+    }
+    if (pct >= 0.80) {
+      return `⚠️ WARNING: ${remaining} steps remaining of your ${this.config.maxSteps}-step budget. Begin finalizing your answer. Do not start new extraction tasks — call finish() soon.`;
+    }
+    return null;
+  }
+
+  // Prepend any pending steer messages and budget warnings to the pageText
+  // field of a tool result so Claude sees them as part of the page context.
+  private applyOverlays(
+    result: Record<string, unknown>,
+    pageText: string | null | undefined,
+  ): Record<string, unknown> {
+    const steer = this.flushSteerMessages();
+    const warning = this.getBudgetWarning();
+    const lines: string[] = [];
+    if (steer) lines.push(`[OPERATOR INSTRUCTION: ${steer}]`);
+    if (warning) lines.push(warning);
+    if (lines.length === 0) return result;
+    return { ...result, pageText: `${lines.join("\n\n")}\n\n${pageText ?? ""}` };
   }
 
   // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -716,13 +760,14 @@ export class McpAgentRunner {
 
           // Return page context + screenshot note (base64 too large for tool result text)
           const ctx = await this.getPageContext();
-          return {
+          const screenshotBase = {
             success: true,
             screenshotCaptured: screenshotData !== null,
             currentUrl: ctx.currentUrl,
             pageText: ctx.pageText,
             interactiveElements: ctx.interactiveElements,
           };
+          return this.applyOverlays(screenshotBase, ctx.pageText);
         },
       },
 
@@ -1576,7 +1621,7 @@ export class McpAgentRunner {
       interactiveElements: string | null;
     },
   ): ToolResult {
-    return {
+    const base: ToolResult = {
       success: result.success,
       data: result.success ? result.data : undefined,
       error: result.success ? undefined : result.error,
@@ -1584,6 +1629,7 @@ export class McpAgentRunner {
       pageText: ctx.pageText,
       interactiveElements: ctx.interactiveElements,
     };
+    return this.applyOverlays(base as unknown as Record<string, unknown>, ctx.pageText) as unknown as ToolResult;
   }
 
   // ─── System prompt & initial message ─────────────────────────────────────────

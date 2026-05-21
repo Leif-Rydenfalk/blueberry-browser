@@ -30,13 +30,25 @@ Blueberry binds a localhost port at startup (default **7777**, override with
 | Method | Path              | Purpose                              |
 |--------|-------------------|--------------------------------------|
 | `POST` | `/mcp`            | JSON-RPC requests (`initialize`, `tools/list`, `tools/call`) |
-| `GET`  | `/mcp/sse`        | Server-Sent Events stream for streamed progress updates |
+| `GET`  | `/mcp/sse`        | Server-Sent Events stream — live per-step progress |
 | `GET`  | `/healthz`        | Liveness probe — returns `{ ok: true }` |
 
-The SSE stream emits one event per agent step (`event: progress`) so the
-caller can render live progress, plus a terminal `event: complete` carrying the
-final envelope. A caller that only wants the final answer can ignore SSE and
-just `POST /mcp` with `tools/call`.
+#### SSE event types
+
+| `event:` | Payload | Description |
+|----------|---------|-------------|
+| `request` | `McpRequestEvent` | Task received and queued |
+| `progress` | `McpProgressEvent` | One event per agent step — fires continuously during execution |
+| `complete` | `McpCompletionEvent` | Task finished — carries the final answer |
+| `login-required` | `McpLoginRequiredEvent` | Agent hit a login wall, blocked until human signs in |
+
+`progress` events are the primary traceability mechanism. Each one carries the
+step number, action type, agent reasoning, and current status so the calling
+agent can track execution, detect when partial data is usable, and decide
+whether to steer the agent via `steer_task`.
+
+A caller that only wants the final answer can ignore SSE and just `POST /mcp`
+with `tools/call`.
 
 ### 2. stdio bridge — for local subprocess agents
 
@@ -62,6 +74,58 @@ Blueberry instance. If Blueberry isn't running, the bridge returns a clear
 ---
 
 ## The Tool Surface
+
+### `steer_task` — redirect the running agent
+
+Non-blocking. Queues a plain-English instruction that the running agent
+sees in its next tool result. Use it to correct a mistake, add context,
+change scope, or tell the agent to stop and finish.
+
+```jsonc
+{
+  "tool": "steer_task",
+  "arguments": {
+    "message": "You have enough speakers. Stop collecting more and write the Notion shortlist now."
+  }
+}
+```
+
+Returns immediately — does not wait for the agent to act on the message.
+If no agent is running, `queued: false` is returned and the message is
+discarded.
+
+---
+
+### `get_task_status` — inspect the running agent
+
+Poll the current agent state without blocking. Useful for orchestrators
+that want to check progress before deciding whether to steer. Subscribe to
+`/mcp/sse` instead if you need real-time updates.
+
+```jsonc
+{
+  "tool": "get_task_status",
+  "arguments": {}
+}
+```
+
+Returns:
+
+```jsonc
+{
+  "active":      true,
+  "sessionId":   "uuid",
+  "status":      "running",
+  "goal":        "Open Gmail and summarise ...",
+  "stepNum":     14,
+  "maxSteps":    60,
+  "elapsedMs":   47000,
+  "startedAt":   1716300000000,
+  "queueDepth":  0
+}
+```
+
+---
 
 ### `delegate_task` — single-step delegation
 
@@ -218,6 +282,30 @@ partial data.
   ]
 }
 ```
+
+---
+
+## SSE Event Schemas
+
+### `progress` — per-step trace
+
+```jsonc
+{
+  "taskId":      "uuid",        // correlates with request/complete events
+  "sessionId":   "uuid",        // agent session ID
+  "stepNum":     14,            // 1-based counter
+  "maxSteps":    60,            // step budget for this run
+  "actionType":  "extractSchema",
+  "reasoning":   "gmail_inbox_list now has 48 rows — Gmail ✓. Calendar still pending.",
+  "status":      "success",     // "running" | "success" | "error"
+  "currentUrl":  null,
+  "timestamp":   1716300047000
+}
+```
+
+The calling agent should watch for `status: "error"` on repeated steps and
+consider calling `steer_task` to redirect. Watch `stepNum / maxSteps` to
+know how much budget remains.
 
 ---
 

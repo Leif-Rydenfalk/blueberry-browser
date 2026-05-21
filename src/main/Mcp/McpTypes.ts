@@ -280,3 +280,62 @@ export interface McpLoginRequiredEvent {
   readonly url: string | null;
   readonly createdAt: number;
 }
+
+// Fired once per agent step while a delegation is in progress. Allows the
+// calling agent to track execution, surface live progress to its UI, and
+// detect when partial data is already usable.
+export interface McpProgressEvent {
+  readonly taskId: string;       // McpHandler request ID — correlates with the request/complete events
+  readonly sessionId: string;    // Agent session ID
+  readonly stepNum: number;      // 1-based step counter within this run
+  readonly maxSteps: number;     // Step budget for this run
+  readonly actionType: string;   // e.g. "navigate", "click", "extractSchema", "finish"
+  readonly reasoning: string;    // Agent's reasoning for this action (shown in sidebar)
+  readonly status: "running" | "success" | "error";
+  readonly currentUrl: string | null;
+  readonly timestamp: number;    // Unix ms
+}
+
+// ---- steer_task tool ----
+
+export const STEER_TASK_TOOL: McpToolSchema = {
+  name: "steer_task",
+  description:
+    "Send a steering instruction to the currently running agent. The message is injected into the agent's next tool result so it can adjust direction, correct a mistake, add context, or change scope. Non-blocking — returns immediately. If no agent is running, returns queued:false.",
+  inputSchema: {
+    type: "object",
+    required: ["message"],
+    properties: {
+      message: {
+        type: "string",
+        description:
+          "Instruction or correction for the running agent. Plain English. Examples: \"Stop searching for more leads — you already have enough. Finish now.\", \"The data you found is correct. Now write it back to the sheet.\", \"Skip Salesforce — the user doesn't have access. Move to the Notion step.\"",
+      },
+    },
+  },
+};
+
+// ---- get_task_status tool ----
+
+export interface McpTaskStatusResult {
+  readonly active: boolean;
+  readonly taskId?: string;
+  readonly sessionId?: string;
+  readonly status?: "running" | "paused" | "completed" | "error";
+  readonly goal?: string;
+  readonly stepNum?: number;
+  readonly maxSteps?: number;
+  readonly elapsedMs?: number;
+  readonly startedAt?: number;
+  readonly queueDepth?: number;
+}
+
+export const GET_TASK_STATUS_TOOL: McpToolSchema = {
+  name: "get_task_status",
+  description:
+    "Query the current state of the running agent without blocking. Returns step progress, elapsed time, and status. Subscribe to /mcp/sse for real-time step events instead of polling this.",
+  inputSchema: {
+    type: "object",
+    properties: {},
+  },
+};

@@ -13,7 +13,9 @@ import type { AgentOrchestrator } from "../Agent/core/AgentOrchestrator";
 import {
   DELEGATE_TASK_TOOL,
   DELEGATE_WORKFLOW_TOOL,
+  GET_TASK_STATUS_TOOL,
   MCP_ERROR,
+  STEER_TASK_TOOL,
   type DelegateTaskArgs,
   type DelegateTaskResult,
   type DelegateWorkflowArgs,
@@ -21,10 +23,13 @@ import {
   type McpAttachment,
   type McpCompletionEvent,
   type McpContent,
+  type McpProgressEvent,
   type McpRequestEvent,
+  type McpTaskStatusResult,
   type McpToolCallResult,
   type McpToolSchema,
 } from "./McpTypes";
+import type { AgentStreamUpdate } from "../Agent/types/AgentTypes";
 
 const MAX_QUEUE_DEPTH = 8;
 
@@ -64,6 +69,7 @@ export class McpHandler {
   private requestCount = 0;
   private onRequest: ((event: McpRequestEvent) => void) | null = null;
   private onCompletion: ((event: McpCompletionEvent) => void) | null = null;
+  private onProgress: ((event: McpProgressEvent) => void) | null = null;
 
   constructor(orchestrator: AgentOrchestrator) {
     this.orchestrator = orchestrator;
@@ -77,8 +83,12 @@ export class McpHandler {
     this.onCompletion = cb;
   }
 
+  setOnProgress(cb: (event: McpProgressEvent) => void): void {
+    this.onProgress = cb;
+  }
+
   listTools(): ReadonlyArray<McpToolSchema> {
-    return [DELEGATE_TASK_TOOL, DELEGATE_WORKFLOW_TOOL];
+    return [DELEGATE_TASK_TOOL, DELEGATE_WORKFLOW_TOOL, STEER_TASK_TOOL, GET_TASK_STATUS_TOOL];
   }
 
   getTotalRequests(): number {
@@ -117,6 +127,51 @@ export class McpHandler {
       };
       const result = await this.delegateWorkflow(wfArgs, clientInfo);
       return workflowResultToToolCallResult(result);
+    }
+
+    if (name === STEER_TASK_TOOL.name) {
+      const message =
+        typeof args?.message === "string" ? args.message.trim() : "";
+      if (!message) {
+        throw new McpToolError(
+          MCP_ERROR.INVALID_PARAMS,
+          "steer_task requires a non-empty `message` string.",
+        );
+      }
+      const queued = this.orchestrator.steerAgent(message);
+      const statusResult: McpTaskStatusResult & { queued: boolean; message: string } = {
+        active: this.orchestrator.isRunning(),
+        queued,
+        message: queued
+          ? "Steering message queued — agent will see it in its next tool result."
+          : "No agent currently running. Message discarded.",
+      };
+      return {
+        content: [{ type: "text", text: JSON.stringify(statusResult, null, 2) }],
+        isError: false,
+      };
+    }
+
+    if (name === GET_TASK_STATUS_TOOL.name) {
+      const session = this.orchestrator.getActiveSession();
+      const result: McpTaskStatusResult = session
+        ? {
+            active: true,
+            taskId: this.active?.id,
+            sessionId: session.id,
+            status: session.status,
+            goal: session.goal,
+            stepNum: session.currentStep,
+            maxSteps: session.maxSteps,
+            elapsedMs: Date.now() - session.createdAt,
+            startedAt: session.createdAt,
+            queueDepth: this.queue.length,
+          }
+        : { active: false, queueDepth: this.queue.length };
+      return {
+        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        isError: false,
+      };
     }
 
     throw new McpToolError(MCP_ERROR.METHOD_NOT_FOUND, `Unknown tool: ${name}`);
@@ -215,10 +270,33 @@ export class McpHandler {
     }
   }
 
+  private buildStepCallback(
+    taskId: string,
+  ): ((update: AgentStreamUpdate) => void) | undefined {
+    if (!this.onProgress) return undefined;
+    const emit = this.onProgress;
+    return (update: AgentStreamUpdate) => {
+      emit({
+        taskId,
+        sessionId: update.sessionId,
+        stepNum: update.step,
+        maxSteps: update.totalSteps,
+        actionType: update.action.type,
+        reasoning: (update.action.reasoning as string | undefined) ?? "",
+        status: update.status === "running" ? "running"
+          : update.status === "error" ? "error"
+          : "success",
+        currentUrl: null,
+        timestamp: Date.now(),
+      });
+    };
+  }
+
   private async executeTask(item: TaskQueueItem): Promise<void> {
     try {
       const goal = enrichGoalWithAttachments(item.args.task, item.args.attachments);
-      const runResult = await this.orchestrator.runOneShot(goal);
+      const stepCallback = this.buildStepCallback(item.id);
+      const runResult = await this.orchestrator.runOneShot(goal, undefined, stepCallback);
       const status: DelegateTaskResult["status"] =
         runResult.status === "completed"
           ? "completed"
@@ -258,9 +336,11 @@ export class McpHandler {
             .filter(Boolean)
             .join("\n\n")
         : item.args.context;
+      const stepCallback = this.buildStepCallback(item.id);
       const result = await this.orchestrator.runWorkflow(
         item.args.steps,
         context,
+        stepCallback,
       );
       item.resolve(result);
     } catch (error) {
