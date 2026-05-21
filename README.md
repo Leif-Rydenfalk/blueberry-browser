@@ -2,7 +2,7 @@
 
 > A real browser that other AI agents can operate like a human.
 
-This project started as a two-week engineering challenge set by [Strawberry](https://github.com/strawberry-browser/strawberry) — build a feature that makes Blueberry superior and more promising than Strawberry. It grew into a personal tool I actually use daily to run my businesses.
+This project started as a two-week engineering challenge set by [Strawberry](https://github.com/strawberry-browser/strawberry). It grew into a personal tool I actually use in my agnetic workflows to send email, manage linkedin, calendar... Does most task you tell it to in the browser by actually browsing and doing it. Like a human would. 
 
 Blueberry is an Electron desktop browser with an AI agent built in. Its primary purpose is to act as the **web-action runtime** for an agentic stack — other agents (Claude projects, n8n flows, cron jobs, anything that speaks MCP) hand it natural-language tasks, and Blueberry performs them in a real, logged-in browser as if a person were sitting at the keyboard.
 
