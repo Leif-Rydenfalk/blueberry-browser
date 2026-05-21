@@ -50,14 +50,6 @@ export class Window {
       }
     });
 
-    // Handle external link opening
-    this.tabsMap.forEach((tab) => {
-      tab.webContents.setWindowOpenHandler((details) => {
-        shell.openExternal(details.url);
-        return { action: "deny" };
-      });
-    });
-
     this.setupEventListeners();
   }
 
@@ -108,6 +100,14 @@ export class Window {
       y: 88, // Start below the topbar
       width: bounds.width - this._sideBar.getWidth(),
       height: bounds.height - 88, // Subtract topbar height
+    });
+
+    // Deny window.open() — open target URL in the system browser instead.
+    // Without this, sandbox:true still allows Electron to create a new
+    // BrowserWindow for every window.open() call, which bypasses the browser UI.
+    tab.webContents.setWindowOpenHandler((details) => {
+      shell.openExternal(details.url);
+      return { action: "deny" };
     });
 
     // Store the tab

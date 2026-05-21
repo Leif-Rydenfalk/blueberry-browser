@@ -56,7 +56,7 @@ export class Tab {
         preload: join(__dirname, "../preload/tabRecorder.js"),
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: false,
+        sandbox: true,
         webSecurity: true,
       },
     });

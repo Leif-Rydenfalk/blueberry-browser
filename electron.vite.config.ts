@@ -18,7 +18,12 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // @electron-toolkit/preload is excluded from externalization so it gets
+    // bundled inline. With sandbox:true, require() in preloads is restricted to
+    // Electron built-ins only — externalized npm packages would fail to load.
+    // Inlining reduces the compiled preload to pure require('electron') calls,
+    // which Electron polyfills even in sandboxed processes.
+    plugins: [externalizeDepsPlugin({ exclude: ["@electron-toolkit/preload"] })],
     build: {
       rollupOptions: {
         input: {
