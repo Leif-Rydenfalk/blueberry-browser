@@ -55,7 +55,7 @@ export class LLMClient {
   private window: Window | null = null;
   private provider: LLMProvider;
   private modelName: string;
-  public model: LanguageModel | null;
+  private model: LanguageModel | null;
   private messages: CoreMessage[] = [];
   private conversationSummary = "";
   private summarizedMessageCount = 0;
@@ -114,10 +114,21 @@ export class LLMClient {
     return this.usageStore?.getTotals() ?? null;
   }
 
+  private sendIpc(channel: string, payload: unknown): void {
+    if (this.webContents.isDestroyed()) return;
+    this.webContents.send(channel, payload);
+  }
+
   private recordUsage(inputTokens: number, outputTokens: number): void {
     if (!this.usageStore) return;
-    this.usageStore.record(inputTokens, outputTokens);
-    this.webContents.send("token-usage-updated", this.usageStore.getTotals());
+    // Fire-and-forget: persist errors are logged inside the store. Totals
+    // are updated in-memory synchronously so the IPC payload is consistent.
+    void this.usageStore.record(inputTokens, outputTokens);
+    this.sendIpc("token-usage-updated", this.usageStore.getTotals());
+  }
+
+  getModel(): LanguageModel | null {
+    return this.model;
   }
 
   setWindow(window: Window): void {
@@ -242,7 +253,7 @@ export class LLMClient {
     this.provider = provider;
     this.modelName = modelName;
     this.model = nextModel;
-    this.settingsStore?.setLastModel({
+    void this.settingsStore?.setLastModel({
       provider: provider as ApiKeyProvider,
       model: modelName,
     });
@@ -547,6 +558,15 @@ export class LLMClient {
   }
 
   async sendChatMessage(request: ChatRequest): Promise<void> {
+    if (
+      typeof request?.message !== "string" ||
+      typeof request?.messageId !== "string" ||
+      !request.message.trim()
+    ) {
+      console.error("[LLMClient] sendChatMessage: invalid request payload");
+      return;
+    }
+
     try {
       let screenshot: string | null = null;
       if (this.window) {
@@ -697,12 +717,12 @@ export class LLMClient {
     this.sendMessagesToRenderer();
   }
 
-  getMessages(): CoreMessage[] {
-    return this.messages;
+  getMessages(): readonly CoreMessage[] {
+    return [...this.messages];
   }
 
   private sendMessagesToRenderer(): void {
-    this.webContents.send("chat-messages-updated", this.messages);
+    this.sendIpc("chat-messages-updated", this.messages);
   }
 
   private async prepareMessagesWithContext(
@@ -1053,19 +1073,25 @@ export class LLMClient {
     const messageIndex = this.messages.length;
     this.messages.push(assistantMessage);
 
-    for await (const chunk of textStream) {
-      accumulatedText += chunk;
+    try {
+      for await (const chunk of textStream) {
+        accumulatedText += chunk;
 
-      this.messages[messageIndex] = {
-        role: "assistant",
-        content: accumulatedText,
-      };
-      this.sendMessagesToRenderer();
+        this.messages[messageIndex] = {
+          role: "assistant",
+          content: accumulatedText,
+        };
+        this.sendMessagesToRenderer();
 
-      this.sendStreamChunk(messageId, {
-        content: chunk,
-        isComplete: false,
-      });
+        this.sendStreamChunk(messageId, {
+          content: chunk,
+          isComplete: false,
+        });
+      }
+    } catch (error) {
+      // Remove the partial placeholder so it doesn't poison future turns.
+      this.messages.splice(messageIndex, 1);
+      throw error;
     }
 
     this.messages[messageIndex] = {
@@ -1169,7 +1195,7 @@ export class LLMClient {
   }
 
   private sendStreamChunk(messageId: string, chunk: StreamChunk): void {
-    this.webContents.send("chat-response", {
+    this.sendIpc("chat-response", {
       messageId,
       content: chunk.content,
       isComplete: chunk.isComplete,

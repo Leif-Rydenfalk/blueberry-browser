@@ -1,6 +1,7 @@
 import { app } from "electron";
-import * as fs from "fs";
-import * as path from "path";
+import { existsSync, readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
+import * as path from "node:path";
 
 export interface TokenUsageTotals {
   readonly inputTokens: number;
@@ -19,15 +20,17 @@ export class TokenUsageStore {
 
   constructor() {
     this.file = path.join(app.getPath("userData"), "token-usage.json");
-    this.data = this.load();
+    // Boot-time read. The file is a tiny two-integer JSON, so a sync read
+    // during app.whenReady is acceptable here — writes go through fs/promises.
+    this.data = this.loadSync();
   }
 
-  record(inputTokens: number, outputTokens: number): void {
+  async record(inputTokens: number, outputTokens: number): Promise<void> {
     this.data = {
       inputTokens: this.data.inputTokens + inputTokens,
       outputTokens: this.data.outputTokens + outputTokens,
     };
-    this.persist();
+    await this.persist();
   }
 
   getTotals(): TokenUsageTotals {
@@ -38,11 +41,11 @@ export class TokenUsageStore {
     };
   }
 
-  private load(): StoredData {
-    if (!fs.existsSync(this.file)) return { inputTokens: 0, outputTokens: 0 };
+  private loadSync(): StoredData {
+    if (!existsSync(this.file)) return { inputTokens: 0, outputTokens: 0 };
     try {
       const parsed = JSON.parse(
-        fs.readFileSync(this.file, "utf-8"),
+        readFileSync(this.file, "utf-8"),
       ) as Partial<StoredData>;
       return {
         inputTokens: parsed.inputTokens ?? 0,
@@ -54,9 +57,9 @@ export class TokenUsageStore {
     }
   }
 
-  private persist(): void {
+  private async persist(): Promise<void> {
     try {
-      fs.writeFileSync(this.file, JSON.stringify(this.data), "utf-8");
+      await writeFile(this.file, JSON.stringify(this.data), "utf-8");
     } catch (error) {
       console.error("[TokenUsageStore] Failed to persist:", error);
     }

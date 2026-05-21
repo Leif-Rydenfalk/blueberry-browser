@@ -314,7 +314,7 @@ export class McpAgentRunner {
     }
     this.finishAnswer = null;
 
-    const model = this.llmClient.model;
+    const model = this.llmClient.getModel();
     if (!model) {
       this.onError?.(
         "No LLM model configured. Add ANTHROPIC_API_KEY or OPENAI_API_KEY to .env.",

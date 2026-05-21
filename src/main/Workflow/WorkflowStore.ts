@@ -1,6 +1,15 @@
 import { app } from "electron";
-import * as fs from "fs";
-import * as path from "path";
+import {
+  access,
+  appendFile,
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import * as path from "node:path";
 import type {
   Workflow,
   WorkflowStep,
@@ -13,54 +22,55 @@ export class WorkflowStore {
 
   constructor() {
     this.dir = path.join(app.getPath("userData"), "workflows");
-    if (!fs.existsSync(this.dir)) {
-      fs.mkdirSync(this.dir, { recursive: true });
-    }
   }
 
-  save(workflow: Workflow): void {
+  async save(workflow: Workflow): Promise<void> {
+    await mkdir(this.dir, { recursive: true });
     const file = path.join(this.dir, `${workflow.id}.json`);
-    fs.writeFileSync(file, JSON.stringify(workflow, null, 2), "utf-8");
+    await writeFile(file, JSON.stringify(workflow, null, 2), "utf-8");
   }
 
-  load(id: string): Workflow | null {
+  async load(id: string): Promise<Workflow | null> {
     const file = path.join(this.dir, `${id}.json`);
-    if (!fs.existsSync(file)) return null;
     try {
-      return JSON.parse(fs.readFileSync(file, "utf-8")) as Workflow;
+      const raw = await readFile(file, "utf-8");
+      return JSON.parse(raw) as Workflow;
     } catch (error) {
+      if (isMissingFile(error)) return null;
       console.error(`[WorkflowStore] Failed to load workflow ${id}:`, error);
       return null;
     }
   }
 
-  delete(id: string): boolean {
+  async delete(id: string): Promise<boolean> {
     const file = path.join(this.dir, `${id}.json`);
-    if (!fs.existsSync(file)) return false;
-    fs.unlinkSync(file);
-    const runsDir = path.join(this.dir, id, "runs");
-    if (fs.existsSync(runsDir)) {
-      fs.rmSync(path.join(this.dir, id), { recursive: true, force: true });
+    try {
+      await unlink(file);
+    } catch (error) {
+      if (isMissingFile(error)) return false;
+      throw error;
     }
+    // Best-effort cleanup of any per-workflow run artefacts.
+    await rm(path.join(this.dir, id), { recursive: true, force: true });
     return true;
   }
 
-  rename(id: string, name: string): boolean {
-    const workflow = this.load(id);
+  async rename(id: string, name: string): Promise<boolean> {
+    const workflow = await this.load(id);
     if (!workflow) return false;
-    this.save({ ...workflow, name });
+    await this.save({ ...workflow, name });
     return true;
   }
 
-  setDataset(id: string, dataset: WorkflowDataset): boolean {
-    const workflow = this.load(id);
+  async setDataset(id: string, dataset: WorkflowDataset): Promise<boolean> {
+    const workflow = await this.load(id);
     if (!workflow) return false;
-    this.save({ ...workflow, dataset });
+    await this.save({ ...workflow, dataset });
     return true;
   }
 
-  clearDataset(id: string): boolean {
-    const workflow = this.load(id);
+  async clearDataset(id: string): Promise<boolean> {
+    const workflow = await this.load(id);
     if (!workflow) return false;
     // Also drop any per-step parameter bindings that referenced the dataset.
     const steps = workflow.steps.map((step) => {
@@ -74,15 +84,18 @@ export class WorkflowStore {
       };
     });
     const next: Workflow = { ...workflow, steps };
-    // Remove dataset by reconstructing without the key
     const { dataset: _drop, ...withoutDataset } = next;
     void _drop;
-    this.save(withoutDataset as Workflow);
+    await this.save(withoutDataset as Workflow);
     return true;
   }
 
-  bindStepToColumn(id: string, stepId: string, column: string | null): boolean {
-    const workflow = this.load(id);
+  async bindStepToColumn(
+    id: string,
+    stepId: string,
+    column: string | null,
+  ): Promise<boolean> {
+    const workflow = await this.load(id);
     if (!workflow) return false;
     let mutated = false;
     const steps: WorkflowStep[] = workflow.steps.map((step) => {
@@ -101,30 +114,34 @@ export class WorkflowStore {
       };
     });
     if (!mutated) return false;
-    this.save({ ...workflow, steps });
+    await this.save({ ...workflow, steps });
     return true;
   }
 
-  appendRunOutput(
+  async appendRunOutput(
     workflowId: string,
     runId: string,
     columns: ReadonlyArray<string>,
     row: Readonly<Record<string, string>>,
     answer: string,
     error?: string,
-  ): string {
+  ): Promise<string> {
     const runsDir = path.join(this.dir, workflowId, "runs");
-    fs.mkdirSync(runsDir, { recursive: true });
+    await mkdir(runsDir, { recursive: true });
     const csvPath = path.join(runsDir, `${runId}.csv`);
 
-    if (!fs.existsSync(csvPath)) {
+    // Header is written lazily on the first row of a run. We probe with
+    // a non-throwing read instead of stat() — atomic enough for our use,
+    // and avoids a separate import.
+    const headerNeeded = !(await pathExists(csvPath));
+    if (headerNeeded) {
       const headers = [...columns, "_answer", "_error"];
-      fs.writeFileSync(csvPath, this.csvRow(headers) + "\n", "utf-8");
+      await writeFile(csvPath, this.csvRow(headers) + "\n", "utf-8");
     }
 
     const values = columns.map((c) => row[c] ?? "");
     const line = this.csvRow([...values, answer || "", error || ""]);
-    fs.appendFileSync(csvPath, line + "\n", "utf-8");
+    await appendFile(csvPath, line + "\n", "utf-8");
     return csvPath;
   }
 
@@ -141,33 +158,66 @@ export class WorkflowStore {
       .join(",");
   }
 
-  listSummaries(): WorkflowSummary[] {
-    const entries = fs.readdirSync(this.dir, { withFileTypes: true });
-    const summaries: WorkflowSummary[] = [];
-
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      try {
-        const workflow = JSON.parse(
-          fs.readFileSync(path.join(this.dir, entry.name), "utf-8"),
-        ) as Workflow;
-        summaries.push({
-          id: workflow.id,
-          name: workflow.name,
-          description: workflow.description,
-          createdAt: workflow.createdAt,
-          duration: workflow.duration,
-          stepCount: workflow.stepCount,
-          startUrl: workflow.startUrl,
-          endUrl: workflow.endUrl,
-          datasetRowCount: workflow.dataset?.rows.length,
-          datasetColumns: workflow.dataset?.columns,
-        });
-      } catch {
-        // Skip corrupt files
-      }
+  async listSummaries(): Promise<WorkflowSummary[]> {
+    let entries;
+    try {
+      entries = await readdir(this.dir, { withFileTypes: true });
+    } catch (error) {
+      if (isMissingFile(error)) return [];
+      throw error;
     }
 
-    return summaries.sort((a, b) => b.createdAt - a.createdAt);
+    const files = entries.filter(
+      (entry) => entry.isFile() && entry.name.endsWith(".json"),
+    );
+
+    const summaries = await Promise.all(
+      files.map(async (entry) => {
+        try {
+          const raw = await readFile(
+            path.join(this.dir, entry.name),
+            "utf-8",
+          );
+          const workflow = JSON.parse(raw) as Workflow;
+          return {
+            id: workflow.id,
+            name: workflow.name,
+            description: workflow.description,
+            createdAt: workflow.createdAt,
+            duration: workflow.duration,
+            stepCount: workflow.stepCount,
+            startUrl: workflow.startUrl,
+            endUrl: workflow.endUrl,
+            datasetRowCount: workflow.dataset?.rows.length,
+            datasetColumns: workflow.dataset?.columns,
+          } satisfies WorkflowSummary;
+        } catch {
+          return null;
+        }
+      }),
+    );
+
+    return summaries
+      .filter((s): s is WorkflowSummary => s !== null)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code: string }).code === "ENOENT"
+  );
+}
+
+async function pathExists(file: string): Promise<boolean> {
+  try {
+    await access(file);
+    return true;
+  } catch (error) {
+    if (isMissingFile(error)) return false;
+    throw error;
   }
 }

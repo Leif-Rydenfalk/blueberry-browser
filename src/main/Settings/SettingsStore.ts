@@ -7,7 +7,8 @@
 // this store after that point. The Window constructor satisfies that.
 
 import { app, safeStorage } from "electron";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   API_KEY_PROVIDERS,
@@ -36,6 +37,8 @@ export class SettingsStore {
 
   constructor() {
     const userData = app.getPath("userData");
+    // Boot-time prep: userData always exists in practice, but mkdirSync is
+    // idempotent and runs once during app.whenReady. Writes go async below.
     mkdirSync(userData, { recursive: true });
     this.filePath = join(userData, SETTINGS_FILENAME);
     this.encryptionAvailable = safeStorage.isEncryptionAvailable();
@@ -44,7 +47,7 @@ export class SettingsStore {
         "[SettingsStore] safeStorage encryption unavailable on this platform; API keys will be stored in plaintext.",
       );
     }
-    this.loadFromDisk();
+    this.loadFromDiskSync();
   }
 
   // ---- API keys ----
@@ -55,10 +58,10 @@ export class SettingsStore {
     return this.decrypt(stored);
   }
 
-  setApiKey(provider: ApiKeyProvider, key: string): void {
+  async setApiKey(provider: ApiKeyProvider, key: string): Promise<void> {
     const trimmed = key.trim();
     if (!trimmed) {
-      this.clearApiKey(provider);
+      await this.clearApiKey(provider);
       return;
     }
     const stored = this.encrypt(trimmed);
@@ -66,15 +69,15 @@ export class SettingsStore {
       ...this.data,
       apiKeys: { ...this.data.apiKeys, [provider]: stored },
     };
-    this.saveToDisk();
+    await this.saveToDisk();
   }
 
-  clearApiKey(provider: ApiKeyProvider): void {
+  async clearApiKey(provider: ApiKeyProvider): Promise<void> {
     if (!this.data.apiKeys[provider]) return;
     const nextKeys = { ...this.data.apiKeys };
     delete nextKeys[provider];
     this.data = { ...this.data, apiKeys: nextKeys };
-    this.saveToDisk();
+    await this.saveToDisk();
   }
 
   getApiKeyStatuses(envFallback: Record<ApiKeyProvider, string | undefined>):
@@ -117,9 +120,9 @@ export class SettingsStore {
     return this.data.lastModel;
   }
 
-  setLastModel(selection: StoredModelSelection): void {
+  async setLastModel(selection: StoredModelSelection): Promise<void> {
     this.data = { ...this.data, lastModel: selection };
-    this.saveToDisk();
+    await this.saveToDisk();
   }
 
   // ---- Agent preferences ----
@@ -128,16 +131,20 @@ export class SettingsStore {
     return { ...DEFAULT_AGENT_PREFERENCES, ...(this.data.agentPreferences ?? {}) };
   }
 
-  setAgentPreferences(prefs: Partial<AgentPreferences>): AgentPreferences {
+  async setAgentPreferences(
+    prefs: Partial<AgentPreferences>,
+  ): Promise<AgentPreferences> {
     const next: AgentPreferences = { ...this.getAgentPreferences(), ...prefs };
     this.data = { ...this.data, agentPreferences: next };
-    this.saveToDisk();
+    await this.saveToDisk();
     return next;
   }
 
   // ---- internals ----
 
-  private loadFromDisk(): void {
+  // Sync read is intentional — runs once during app.whenReady on a small JSON
+  // file. Writes use fs/promises so the hot path doesn't block the main thread.
+  private loadFromDiskSync(): void {
     try {
       if (!existsSync(this.filePath)) {
         this.data = EMPTY_SETTINGS;
@@ -165,10 +172,10 @@ export class SettingsStore {
     };
   }
 
-  private saveToDisk(): void {
+  private async saveToDisk(): Promise<void> {
     try {
       const serialised = JSON.stringify(this.data, null, 2);
-      writeFileSync(this.filePath, serialised, "utf8");
+      await writeFile(this.filePath, serialised, "utf8");
     } catch (error) {
       console.error("[SettingsStore] Failed to write settings file:", error);
     }

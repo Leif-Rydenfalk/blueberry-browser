@@ -122,7 +122,7 @@ export class TestHarness {
     }
 
     this.printSummary(results, compatResults);
-    this.writeReport(results, compatResults);
+    await this.writeReport(results, compatResults);
 
     const agentFailed = results.filter((r) => !r.passed && !r.skipped).length;
     const compatFailed = compatResults.filter((r) => !r.passed).length;
@@ -391,16 +391,16 @@ export class TestHarness {
 
   // ─── JSON report ────────────────────────────────────────────────────────────
 
-  private writeReport(
+  private async writeReport(
     results: TaskResult[],
     compatResults: CompatResult[],
-  ): void {
+  ): Promise<void> {
     try {
       const reportsDir = path.join(
         app.getPath("userData"),
         "test-reports",
       );
-      fs.mkdirSync(reportsDir, { recursive: true });
+      await fs.promises.mkdir(reportsDir, { recursive: true });
 
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const reportPath = path.join(reportsDir, `report-${timestamp}.json`);
@@ -443,7 +443,7 @@ export class TestHarness {
         })),
       };
 
-      fs.writeFileSync(reportPath, JSON.stringify(report, null, 2));
+      await fs.promises.writeFile(reportPath, JSON.stringify(report, null, 2));
       console.log(c("dim", `  Report written to: ${reportPath}`));
     } catch (err) {
       console.error("Failed to write test report:", err);

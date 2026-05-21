@@ -33,7 +33,7 @@ export class SettingsIpcHandler {
     if (!isValidProvider(provider)) {
       throw new Error(`Unknown provider: ${provider}`);
     }
-    this.store.setApiKey(provider, key);
+    await this.store.setApiKey(provider, key);
     await this.llmClient.refreshFromSettings();
     return this.getApiKeyStatuses();
   }
@@ -44,7 +44,7 @@ export class SettingsIpcHandler {
     if (!isValidProvider(provider)) {
       throw new Error(`Unknown provider: ${provider}`);
     }
-    this.store.clearApiKey(provider);
+    await this.store.clearApiKey(provider);
     await this.llmClient.refreshFromSettings();
     return this.getApiKeyStatuses();
   }
@@ -53,7 +53,9 @@ export class SettingsIpcHandler {
     return this.store.getAgentPreferences();
   }
 
-  setAgentPreferences(prefs: Partial<AgentPreferences>): AgentPreferences {
+  setAgentPreferences(
+    prefs: Partial<AgentPreferences>,
+  ): Promise<AgentPreferences> {
     return this.store.setAgentPreferences(prefs);
   }
 

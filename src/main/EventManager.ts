@@ -231,7 +231,10 @@ export class EventManager {
     ipcMain.handle(
       WORKFLOW_CHANNELS.EXECUTE,
       async (_, id: string, goalOverride?: string) => {
-        const prompt = this.workflowHandler.buildAgentPrompt(id, goalOverride);
+        const prompt = await this.workflowHandler.buildAgentPrompt(
+          id,
+          goalOverride,
+        );
         if (!prompt) return { error: "Workflow not found" };
         const result = await this.agentHandler.start({
           goal: prompt,
@@ -507,7 +510,7 @@ export class EventManager {
 
     ipcMain.handle(
       "sidebar-set-model-selection",
-      (_, selection: { provider: "openai" | "anthropic"; model: string }) => {
+      (_, selection: { provider: "openai" | "anthropic" | "google"; model: string }) => {
         return this.mainWindow.sidebar.client.setModelSelection(
           selection.provider,
           selection.model,

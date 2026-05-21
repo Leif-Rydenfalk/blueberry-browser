@@ -97,7 +97,7 @@ export class WorkflowIpcHandler {
   async stopRecording(name: string): Promise<Workflow | null> {
     const workflow = this.recorder.stop(name);
     if (workflow) {
-      this.store.save(workflow);
+      await this.store.save(workflow);
     }
     return workflow;
   }
@@ -119,19 +119,19 @@ export class WorkflowIpcHandler {
     return this.recorder.getState();
   }
 
-  getAllWorkflows(): import("./WorkflowTypes").WorkflowSummary[] {
+  getAllWorkflows(): Promise<import("./WorkflowTypes").WorkflowSummary[]> {
     return this.store.listSummaries();
   }
 
-  getWorkflow(id: string): Workflow | null {
+  getWorkflow(id: string): Promise<Workflow | null> {
     return this.store.load(id);
   }
 
-  deleteWorkflow(id: string): boolean {
+  deleteWorkflow(id: string): Promise<boolean> {
     return this.store.delete(id);
   }
 
-  renameWorkflow(id: string, name: string): boolean {
+  renameWorkflow(id: string, name: string): Promise<boolean> {
     return this.store.rename(id, name);
   }
 
@@ -199,11 +199,11 @@ export class WorkflowIpcHandler {
     return { columns: header, rows: data, source };
   }
 
-  attachDataset(id: string, dataset: WorkflowDataset): boolean {
+  attachDataset(id: string, dataset: WorkflowDataset): Promise<boolean> {
     return this.store.setDataset(id, dataset);
   }
 
-  clearDataset(id: string): boolean {
+  clearDataset(id: string): Promise<boolean> {
     return this.store.clearDataset(id);
   }
 
@@ -211,7 +211,11 @@ export class WorkflowIpcHandler {
     this.recorder.setActiveDataset(dataset);
   }
 
-  bindStepToColumn(id: string, stepId: string, column: string | null): boolean {
+  bindStepToColumn(
+    id: string,
+    stepId: string,
+    column: string | null,
+  ): Promise<boolean> {
     return this.store.bindStepToColumn(id, stepId, column);
   }
 
@@ -222,7 +226,7 @@ export class WorkflowIpcHandler {
     if (!this.orchestrator) {
       return { error: "AgentOrchestrator not wired" };
     }
-    const workflow = this.store.load(workflowId);
+    const workflow = await this.store.load(workflowId);
     if (!workflow) return { error: "Workflow not found" };
     const dataset = workflow.dataset;
     if (!dataset || dataset.rows.length === 0) {
@@ -281,7 +285,7 @@ export class WorkflowIpcHandler {
         successes++;
       }
 
-      csvPath = this.store.appendRunOutput(
+      csvPath = await this.store.appendRunOutput(
         workflow.id,
         runId,
         dataset.columns,
@@ -325,11 +329,11 @@ export class WorkflowIpcHandler {
     return this.renderAgentPrompt(workflow, goalOverride, row);
   }
 
-  buildAgentPrompt(
+  async buildAgentPrompt(
     workflowId: string,
     userGoalOverride?: string,
-  ): string | null {
-    const workflow = this.store.load(workflowId);
+  ): Promise<string | null> {
+    const workflow = await this.store.load(workflowId);
     if (!workflow) return null;
     return this.renderAgentPrompt(workflow, userGoalOverride, null);
   }
