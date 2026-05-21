@@ -59,6 +59,11 @@ export type BucketStore = Map<string, CollectedBucket>;
 const MAX_BUCKET_ROWS = 500;
 const MAX_BUCKET_SAMPLE = 200;
 
+const SKIP_SCREENSHOT_ACTIONS = new Set([
+  "extract", "extractSchema", "wait", "waitForSelector",
+  "select", "finish", "waitForApproval", "loginRequired", "executeScript",
+]);
+
 // ─── Gate types ────────────────────────────────────────────────────────────────
 
 interface PendingApproval {
@@ -262,19 +267,26 @@ export class McpAgentRunner {
     return null;
   }
 
-  // Prepend any pending steer messages and budget warnings to the pageText
-  // field of a tool result so Claude sees them as part of the page context.
-  private applyOverlays(
-    result: Record<string, unknown>,
-    pageText: string | null | undefined,
-  ): Record<string, unknown> {
+  // Compute the final pageText value: steer messages and budget warnings
+  // prepended when present. Flushes the steer queue — call once per tool result.
+  private overlayPageText(pageText: string | null | undefined): string | null {
     const steer = this.flushSteerMessages();
     const warning = this.getBudgetWarning();
     const lines: string[] = [];
     if (steer) lines.push(`[OPERATOR INSTRUCTION: ${steer}]`);
     if (warning) lines.push(warning);
-    if (lines.length === 0) return result;
-    return { ...result, pageText: `${lines.join("\n\n")}\n\n${pageText ?? ""}` };
+    if (lines.length === 0) return pageText ?? null;
+    return `${lines.join("\n\n")}\n\n${pageText ?? ""}`;
+  }
+
+  // Variant for the screenshot tool, which returns a freeform object to Claude.
+  private applyOverlays(
+    result: Record<string, unknown>,
+    pageText: string | null | undefined,
+  ): Record<string, unknown> {
+    const overlaid = this.overlayPageText(pageText);
+    if (overlaid === (pageText ?? null)) return result;
+    return { ...result, pageText: overlaid };
   }
 
   // ─── Main entry point ─────────────────────────────────────────────────────────
@@ -286,6 +298,7 @@ export class McpAgentRunner {
     if (this.isRunningFlag) throw new Error("Agent is already running");
 
     this.isRunningFlag = true;
+    this.sessionId = uuidv4();
     this.steps = [];
     // Auto-approve mode: MCP/headless runs never hang on human approval gates
     this.approveAllForRun = this.config.autoApprove ?? false;
@@ -1344,18 +1357,7 @@ export class McpAgentRunner {
     this.recordExtracted(action, result);
 
     // Capture screenshot for UI display (not sent to Claude)
-    const skipScreenshot = new Set([
-      "extract",
-      "extractSchema",
-      "wait",
-      "waitForSelector",
-      "select",
-      "finish",
-      "waitForApproval",
-      "loginRequired",
-      "executeScript",
-    ]);
-    const screenshot = skipScreenshot.has(action.type)
+    const screenshot = SKIP_SCREENSHOT_ACTIONS.has(action.type)
       ? null
       : await this.strategy.captureScreenshot().catch(() => null);
 
@@ -1615,14 +1617,12 @@ export class McpAgentRunner {
     pageText: string | null;
     interactiveElements: string | null;
   }> {
-    const [currentUrl, pageText, ctx] = await Promise.all([
-      this.strategy.getCurrentUrl().catch(() => null),
-      this.strategy.getPageText().catch(() => null),
-      this.strategy.getActiveContext("", []).catch(() => null),
-    ]);
+    // getActiveContext already fetches URL, pageText, and interactiveElements in
+    // parallel — calling them separately would triple the IPC round-trips.
+    const ctx = await this.strategy.getActiveContext("", []).catch(() => null);
     return {
-      currentUrl,
-      pageText: pageText ? pageText.substring(0, 2500) : null,
+      currentUrl: ctx?.currentUrl ?? null,
+      pageText: ctx?.pageText ? ctx.pageText.substring(0, 2500) : null,
       interactiveElements: ctx?.interactiveElements
         ? ctx.interactiveElements.substring(0, 1800)
         : null,
@@ -1637,15 +1637,14 @@ export class McpAgentRunner {
       interactiveElements: string | null;
     },
   ): ToolResult {
-    const base: ToolResult = {
+    return {
       success: result.success,
       data: result.success ? result.data : undefined,
       error: result.success ? undefined : result.error,
       currentUrl: ctx.currentUrl,
-      pageText: ctx.pageText,
+      pageText: this.overlayPageText(ctx.pageText),
       interactiveElements: ctx.interactiveElements,
     };
-    return this.applyOverlays(base as unknown as Record<string, unknown>, ctx.pageText) as unknown as ToolResult;
   }
 
   // ─── System prompt & initial message ─────────────────────────────────────────

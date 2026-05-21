@@ -144,11 +144,6 @@ export class AgentOrchestrator {
     runner.setCallbacks(
       (update) => {
         const enrichedUpdate = { ...update, sessionId };
-        console.log(
-          "[AgentOrchestrator] Emitting update:",
-          enrichedUpdate.action.type,
-          enrichedUpdate.status,
-        );
         this.onStreamUpdate?.(enrichedUpdate);
 
         // Update session
@@ -172,7 +167,8 @@ export class AgentOrchestrator {
         const sess = this.sessions.get(sessionId);
         if (sess) {
           sess.status = "completed";
-          sess.steps = steps;
+          // Drop screenshot base64 from retained history to bound memory use.
+          sess.steps = steps.map((s) => ({ ...s, screenshot: undefined }));
           sess.updatedAt = Date.now();
         }
         this.activeRunner = null;
@@ -380,7 +376,8 @@ export class AgentOrchestrator {
           const sess = this.sessions.get(sessionId);
           if (sess) {
             sess.status = "completed";
-            sess.steps = steps;
+            // Drop screenshot base64 from retained history to bound memory use.
+            sess.steps = steps.map((s) => ({ ...s, screenshot: undefined }));
             sess.updatedAt = Date.now();
           }
           const answer = this.extractFinishAnswer(steps);
@@ -544,7 +541,7 @@ export class AgentOrchestrator {
   }
 
   getSession(sessionId: string): AgentSession | null {
-    return this.sessions.get(sessionId) || null;
+    return this.sessions.get(sessionId) ?? null;
   }
 
   getActiveSession(): AgentSession | null {
@@ -704,7 +701,7 @@ export class AgentOrchestrator {
     attachments?: ReadonlyArray<PromptAttachment>,
   ): string {
     if (!attachments || attachments.length === 0) return goal;
-    const parts: string[] = [goal, ""];
+    const parts: string[] = goal ? [goal, ""] : [];
     const urls = attachments.filter((a) => a.type === "url" && a.url);
     const files = attachments.filter((a) => a.type === "file");
     if (urls.length > 0) {

@@ -244,7 +244,6 @@ export class McpHandler {
       void this.drain();
     });
 
-    const completedCount = result.steps.filter((s) => s.status === "completed").length;
     this.onCompletion?.({
       id,
       completedAt: Date.now(),
@@ -253,9 +252,6 @@ export class McpHandler {
       stepCount: result.totalStepCount,
       error: result.error,
     });
-
-    // Satisfy TS — completedCount is referenced in the completion log
-    void completedCount;
 
     return result;
   }

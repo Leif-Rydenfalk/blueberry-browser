@@ -34,80 +34,80 @@ function compressForHistory(content: string): string {
 }
 
 export interface AgentStep {
-  id: string;
-  step: number;
-  totalSteps: number;
-  action: {
-    type: string;
-    params: Record<string, unknown>;
-    reasoning: string;
+  readonly id: string;
+  readonly step: number;
+  readonly totalSteps: number;
+  readonly action: {
+    readonly type: string;
+    readonly params: Record<string, unknown>;
+    readonly reasoning: string;
   };
-  status: "pending" | "running" | "success" | "error";
-  result?: {
-    success: boolean;
-    data?: unknown;
-    error?: string;
+  readonly status: "pending" | "running" | "success" | "error";
+  readonly result?: {
+    readonly success: boolean;
+    readonly data?: unknown;
+    readonly error?: string;
   };
-  screenshot?: string;
-  timestamp: number;
+  readonly screenshot?: string;
+  readonly timestamp: number;
 }
 
 export interface AgentMessage {
-  id: string;
-  role: "user" | "assistant" | "agent-step";
-  content: string;
-  timestamp: number;
-  stepData?: AgentStep;
+  readonly id: string;
+  readonly role: "user" | "assistant" | "agent-step";
+  readonly content: string;
+  readonly timestamp: number;
+  readonly stepData?: AgentStep;
 }
 
 export type ApprovalDecision = "approve-once" | "approve-all" | "skip" | "stop";
 
 export interface ApprovalRequest {
-  id: string;
-  sessionId: string;
-  action: {
-    type: string;
-    params: Record<string, unknown>;
-    reasoning: string;
+  readonly id: string;
+  readonly sessionId: string;
+  readonly action: {
+    readonly type: string;
+    readonly params: Record<string, unknown>;
+    readonly reasoning: string;
   };
-  reason: string;
-  matchedKeyword?: string;
-  elementLabel?: string;
-  previewData?: Record<string, unknown>;
-  screenshot?: string;
-  createdAt: number;
+  readonly reason: string;
+  readonly matchedKeyword?: string;
+  readonly elementLabel?: string;
+  readonly previewData?: Record<string, unknown>;
+  readonly screenshot?: string;
+  readonly createdAt: number;
 }
 
 export interface ScriptReviewRequest {
-  id: string;
-  sessionId: string;
-  script: string;
-  description: string;
-  name?: string;
-  screenshot?: string;
-  createdAt: number;
+  readonly id: string;
+  readonly sessionId: string;
+  readonly script: string;
+  readonly description: string;
+  readonly name?: string;
+  readonly screenshot?: string;
+  readonly createdAt: number;
 }
 
 export type LoginDecision = "signed-in" | "skip" | "stop";
 
 export interface LoginRequiredRequest {
-  id: string;
-  sessionId: string;
-  app: string;
-  instructions: string;
-  qrLogin: boolean;
-  url: string | null;
-  screenshot?: string;
-  createdAt: number;
+  readonly id: string;
+  readonly sessionId: string;
+  readonly app: string;
+  readonly instructions: string;
+  readonly qrLogin: boolean;
+  readonly url: string | null;
+  readonly screenshot?: string;
+  readonly createdAt: number;
 }
 
 export interface PromptAttachment {
-  id: string;
-  type: "url" | "file";
-  name: string;
-  content?: string;
-  url?: string;
-  mimeType?: string;
+  readonly id: string;
+  readonly type: "url" | "file";
+  readonly name: string;
+  readonly content?: string;
+  readonly url?: string;
+  readonly mimeType?: string;
 }
 
 interface AgentContextType {
@@ -294,13 +294,6 @@ export const AgentProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- IPC payload is untyped at the preload boundary
     const handleAgentUpdate = (data: any): void => {
-      console.log(
-        "[AgentContext] Received update:",
-        data.action?.type,
-        data.status,
-        "step:",
-        data.step,
-      );
       setCurrentStep(data.step);
       setMaxSteps(data.totalSteps);
 
