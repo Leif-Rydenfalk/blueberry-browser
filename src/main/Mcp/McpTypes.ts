@@ -296,6 +296,20 @@ export interface McpProgressEvent {
   readonly timestamp: number;    // Unix ms
 }
 
+// Fired after each workflow step completes (success or error). Allows SSE
+// subscribers to receive partial answers in real time rather than waiting
+// for the entire workflow HTTP response.
+export interface McpWorkflowStepEvent {
+  readonly taskId: string;
+  readonly workflowStepName: string;
+  readonly workflowStepIndex: number;
+  readonly totalWorkflowSteps: number;
+  readonly status: "completed" | "error" | "aborted";
+  readonly answer: string | null;
+  readonly agentStepCount: number;
+  readonly completedAt: number;
+}
+
 // ---- steer_task tool ----
 
 export const STEER_TASK_TOOL: McpToolSchema = {

@@ -16,6 +16,7 @@ import {
   type McpStatus,
   type McpToolCallParams,
   type McpToolsListResult,
+  type McpWorkflowStepEvent,
 } from "./McpTypes";
 import type { LoginRequiredRequest } from "../Agent/types/AgentTypes";
 import { McpHandler, McpToolError } from "./McpHandler";
@@ -59,6 +60,11 @@ export class McpServer {
     // execution in real time and detect when partial data is usable.
     this.handler.setOnProgress((event) => {
       this.broadcast("progress", event);
+    });
+    // Workflow-step completion — one event per workflow step (not per agent action).
+    // Carries the step answer so callers get partial answers before the HTTP response.
+    this.handler.setOnWorkflowStep((event: McpWorkflowStepEvent) => {
+      this.broadcast("workflow-step", event);
     });
   }
 

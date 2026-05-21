@@ -28,6 +28,7 @@ import {
   type McpTaskStatusResult,
   type McpToolCallResult,
   type McpToolSchema,
+  type McpWorkflowStepEvent,
 } from "./McpTypes";
 import type { AgentStreamUpdate } from "../Agent/types/AgentTypes";
 
@@ -70,6 +71,7 @@ export class McpHandler {
   private onRequest: ((event: McpRequestEvent) => void) | null = null;
   private onCompletion: ((event: McpCompletionEvent) => void) | null = null;
   private onProgress: ((event: McpProgressEvent) => void) | null = null;
+  private onWorkflowStep: ((event: McpWorkflowStepEvent) => void) | null = null;
 
   constructor(orchestrator: AgentOrchestrator) {
     this.orchestrator = orchestrator;
@@ -85,6 +87,10 @@ export class McpHandler {
 
   setOnProgress(cb: (event: McpProgressEvent) => void): void {
     this.onProgress = cb;
+  }
+
+  setOnWorkflowStep(cb: (event: McpWorkflowStepEvent) => void): void {
+    this.onWorkflowStep = cb;
   }
 
   listTools(): ReadonlyArray<McpToolSchema> {
@@ -337,10 +343,30 @@ export class McpHandler {
             .join("\n\n")
         : item.args.context;
       const stepCallback = this.buildStepCallback(item.id);
+
+      // Emit a workflow-step SSE event after each step so callers get partial
+      // answers in real time rather than waiting for the full HTTP response.
+      const totalSteps = item.args.steps.length;
+      const workflowStepCallback = this.onWorkflowStep
+        ? (stepResult: { name: string; status: "completed" | "error" | "aborted"; answer: string | null; stepCount: number }, index: number): void => {
+            this.onWorkflowStep!({
+              taskId: item.id,
+              workflowStepName: stepResult.name,
+              workflowStepIndex: index,
+              totalWorkflowSteps: totalSteps,
+              status: stepResult.status,
+              answer: stepResult.answer,
+              agentStepCount: stepResult.stepCount,
+              completedAt: Date.now(),
+            });
+          }
+        : undefined;
+
       const result = await this.orchestrator.runWorkflow(
         item.args.steps,
         context,
         stepCallback,
+        workflowStepCallback,
       );
       item.resolve(result);
     } catch (error) {

@@ -726,14 +726,8 @@ export class ActionExecutor {
     }
 
     const rows = this.normalizeExtractionRows(raw, fields, limit);
-    if (rows.length === 0) {
-      return {
-        success: false,
-        error: "Generated scraper returned zero matching rows",
-        recoverable: true,
-      };
-    }
-
+    // Zero rows is a valid outcome (empty inbox, no events, etc.) — not an error.
+    // The extractSchema wrapper in McpAgentRunner handles empty-vs-real-empty messaging.
     return {
       success: true,
       data: { [params.name]: rows },

@@ -430,10 +430,13 @@ export class AgentOrchestrator {
   // answers from completed steps are injected as context into subsequent steps.
   // onStepUpdate, when provided, is forwarded to every runOneShot call so the
   // MCP handler can stream per-step progress across all workflow steps.
+  // onWorkflowStepComplete fires after each workflow step (not each agent action)
+  // so the MCP handler can push partial answers via SSE before the HTTP response.
   async runWorkflow(
     steps: ReadonlyArray<WorkflowStep>,
     sharedContext?: string,
     onStepUpdate?: (update: AgentStreamUpdate) => void,
+    onWorkflowStepComplete?: (result: WorkflowStepResult, index: number) => void,
   ): Promise<WorkflowResult> {
     const workflowId = uuidv4();
     const stepResults: WorkflowStepResult[] = [];
@@ -443,7 +446,8 @@ export class AgentOrchestrator {
     // opt to reference any of these in finish(includeBuckets:[...]).
     const sharedBuckets: BucketStore = new Map();
 
-    for (const step of steps) {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
       const contextBlock = this.buildWorkflowContext(step, stepResults, sharedContext);
       const fullTask = contextBlock ? `${step.task}\n\n${contextBlock}` : step.task;
 
@@ -455,24 +459,28 @@ export class AgentOrchestrator {
             : runResult.status === "paused"
               ? "aborted"
               : "error";
-        stepResults.push({
+        const stepResult: WorkflowStepResult = {
           name: step.name,
           status: stepStatus,
           answer: runResult.answer,
           stepCount: runResult.steps.length,
           bucketSummaries: runResult.bucketSummaries,
           error: stepStatus !== "completed" ? (runResult.answer ?? "Step failed") : undefined,
-        });
+        };
+        stepResults.push(stepResult);
+        onWorkflowStepComplete?.(stepResult, i);
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`[AgentOrchestrator] Workflow step "${step.name}" failed:`, message);
-        stepResults.push({
+        const errResult: WorkflowStepResult = {
           name: step.name,
           status: "error",
           answer: null,
           stepCount: 0,
           error: message,
-        });
+        };
+        stepResults.push(errResult);
+        onWorkflowStepComplete?.(errResult, i);
         // Continue remaining steps — later steps can synthesize partial data
       }
     }

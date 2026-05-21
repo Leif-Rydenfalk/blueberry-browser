@@ -336,9 +336,18 @@ export class McpAgentRunner {
         // use their default (0.0 for tool use is best anyway)
       });
 
-      // If finish was not called explicitly, emit a budget-exhausted finish
+      // If finish was not called explicitly, emit a budget-exhausted finish with partial data
       if (this.finishAnswer === null && !this.abortController.signal.aborted) {
-        const budgetAnswer = `Reached the step budget after ${this.stepNum} steps.`;
+        const summaries = this.getSummaryOfCollected();
+        const bucketLines = summaries
+          .filter((s) => s.count > 0)
+          .map((s) => `  - ${s.name}: ${s.count} rows (${s.fields.slice(0, 4).join(", ")})`);
+        const partialNote =
+          bucketLines.length > 0
+            ? `\n\nPartial data collected before budget exhausted:\n${bucketLines.join("\n")}`
+            : "";
+        const budgetAnswer = `Agent reached the ${this.stepNum}-step budget without completing the task.${partialNote}`;
+        this.finishAnswer = budgetAnswer;
         this.emitFinishUpdate(budgetAnswer, "success");
       }
 
@@ -861,9 +870,16 @@ export class McpAgentRunner {
           const bucket = this.collected.get(params.name);
           const bucketTotal = bucket?.rows.length ?? 0;
 
-          const message = bucketTotal > 0
-            ? `Bucket "${params.name}" now has ${bucketTotal} unique rows (fields: ${[...bucket!.fields].join(", ")}). ✓ Stage complete — continue to the next stage.`
-            : `⚠ ZERO ROWS collected for "${params.name}". This stage is NOT complete. DO NOT proceed to the next pipeline stage. You must retry:\n  1. Call screenshot to see what is currently on the page\n  2. If you see a sign-in / login page: call loginRequired({app:"[the app]", instructions:"Sign in and click I'm signed in.", qrLogin:false})\n  3. Wait 2s then retry extractSchema with a looser schema or different containerHint\n  4. Try scroll(down) to load content then retry\n  Only skip this stage after 3+ failed attempts — and note the failure explicitly in your final answer.`;
+          let message: string;
+          if (!result.success) {
+            // Scraper itself errored (CSP block, LLM failure, etc.) — retry aggressively
+            message = `⚠ Scraper failed for "${params.name}" (${result.error ?? "unknown error"}). Retry:\n  1. screenshot to see page state\n  2. If login wall: loginRequired then navigate back\n  3. wait(2000) then retry with looser schema or different containerHint\n  4. scroll(down) to load content then retry\n  Only skip after 3 failed attempts.`;
+          } else if (bucketTotal > 0) {
+            message = `Bucket "${params.name}" now has ${bucketTotal} unique rows (fields: ${[...bucket!.fields].join(", ")}). ✓ Stage complete — continue to the next stage.`;
+          } else {
+            // Scraper ran OK but found no rows — may be a genuinely empty page
+            message = `Bucket "${params.name}" is empty. The scraper ran but found no matching rows.\n  → screenshot to confirm: is the page actually empty, or did the scraper miss the elements?\n  → If the page shows data: retry with different schema or containerHint\n  → If the page is genuinely empty (confirmed by screenshot): this is a valid result — note it and continue to the next stage.`;
+          }
 
           return {
             ...result,
@@ -1729,17 +1745,29 @@ CURIOSITY PROTOCOL — BE AN INVESTIGATOR, NOT A SKIMMER
 ────────────────────────────────────────────────────────────
 You are not a passive reader. You are an active investigator looking for what is actually important, urgent, interesting, and actionable. Surface information the user didn't know to ask for.
 
+SCOPE CONSTRAINT — CRITICAL:
+Stay within the apps and URLs the task specifies. Data you read (emails, calendar events, Slack messages) will mention external websites, articles, conferences, company pages. DO NOT navigate to them.
+- WRONG: Email mentions "CES 2026" → you navigate to ces.tech
+- CORRECT: Note "Email mentions CES 2026 event" in your answer, then continue
+- WRONG: Slack message has a GitHub link → you open GitHub to investigate
+- CORRECT: Note the link in your summary, move on
+- WRONG: Calendar event says "Notion doc: [url]" → you navigate to Notion
+- CORRECT: Copy the URL into your answer, do not follow it unless the task says to
+
+If the task says "Check Gmail and Calendar" — you check Gmail and Calendar. Full stop.
+Any link or reference found inside that data is context for your answer, not a navigation target.
+
 CURIOSITY RULES:
-1. When you see something that looks urgent, important, or unusual — dig into it. Open it. Read the full content. Extract all the details.
-2. Ask yourself constantly: "Is there something here I haven't fully understood yet? What is actually going on here?" Then go find out.
+1. When you see something that looks urgent, important, or unusual — dig into it WITHIN the app you're in. Open the email. Click the calendar event. Read the full thread.
+2. Ask yourself constantly: "Is there something here I haven't fully understood yet?" Then look deeper in the same app — not in a new site.
 3. For emails: the subject line is not the story. Open each important-looking email to find the real content, deadlines, action items, who else is involved.
 4. For calendar events: the title is not enough. Click the event to see: full description, video link, all attendees (not just the first two), organizer, notes.
 5. For LinkedIn profiles: title and company is the surface. Look at: recent posts (what are they thinking about?), mutual connections, their actual work history.
 6. For Salesforce/CRM: the deal stage alone tells you nothing. Read: last activity notes, email thread subject, what was promised, what is blocking.
 7. Proactively extract: dates, deadlines, amounts, names, decision-makers, blockers, open questions, action items, dependencies.
-8. If you find something that seems interesting but the user didn't ask for it — note it in your final answer under "Also noticed:". The user will thank you.
-9. Never stop at the minimum. If you found 10 emails, check if there are 50. If you saw 3 calendar events, scroll to find the others.
-10. Your job is not to confirm what the user already knows. Your job is to discover what they don't know yet.
+8. If you find something interesting but the user didn't ask for it — note it in your final answer under "Also noticed:". Do NOT navigate to investigate it.
+9. Never stop at the minimum within an app. If you found 10 emails, check if there are 50. If you saw 3 calendar events, scroll to find the others.
+10. Your job is to discover what the user doesn't know yet — from within the apps they asked about.
 
 ────────────────────────────────────────────────────────────
 10 EXTRACTION STRATEGIES — USE MULTIPLE FOR EVERY TASK
@@ -2008,12 +2036,6 @@ AIRTABLE (airtable.com)
 - Click a base to open it, then click a table tab.
 - Click a cell to edit; Tab/Enter to navigate.
 
-CONFERENCES / EVENTS (e.g. CES)
-- Search for the official event website (e.g. google "CES 2026 speakers site:ces.tech").
-- Navigate to the speakers or agenda page.
-- Use extractSchema to pull speaker names, titles, companies, and session topics.
-- For LinkedIn connection checks: after extracting speakers, check each one on LinkedIn.
-
 ────────────────────────────────────────────────────────────
 DATA COLLECTION — MULTI-STRATEGY APPROACH
 ────────────────────────────────────────────────────────────
@@ -2112,25 +2134,28 @@ STEP 2 — EXTRACT (not just navigate): For EACH app:
   b. if sign-in wall: loginRequired({app:"[App]", instructions:"Sign in and click I'm signed in to continue.", qrLogin:false})
   c. wait for page to load (waitForSelector or screenshot to confirm)
   d. extractSchema with a descriptive bucket name (e.g. "gmail_unreads", "slack_unreads", "calendar_today")
-  e. CHECK the tool result — look for "stageComplete: true" and bucketTotal > 0
-     ✓ bucketTotal > 0  → stage done, move to next app
-     ✗ bucketTotal = 0  → STOP. Apply ZERO-ROW RULE. Do NOT move on.
+  e. READ the message in the tool result:
+     ✓ "Stage complete" (bucketTotal > 0) → move to next app
+     ✓ "genuinely empty" → take a screenshot to confirm, then note it and move on
+     ✗ "Scraper failed" → apply RETRY RULE below
 
-STEP 3 — COUNT: After each successful stage, check: how many apps remain? If > 0, continue. Do NOT call finish.
+STEP 3 — COUNT: After each stage (even if empty), check: how many apps remain? If > 0, continue. Do NOT call finish.
 
 STEP 4 — SYNTHESIZE: Only after ALL apps are done, call finish with sections for each source and a priority action list.
 
 ╔══════════════════════════════════════════════════════════════════╗
-║  ZERO-ROW RULE — NEVER SILENTLY SKIP A STAGE                    ║
-║  If extractSchema returns bucketTotal=0 or "ZERO ROWS":          ║
-║  1. screenshot → see what is on the page right now               ║
-║  2. If login/sign-in wall: loginRequired then navigate back     ║
+║  RETRY RULE — when the scraper fails (not when data is empty)   ║
+║  If extractSchema message says "Scraper failed":                 ║
+║  1. screenshot → see what is on the page right now              ║
+║  2. If login/sign-in wall: loginRequired then navigate back      ║
 ║  3. wait(2000) then retry extractSchema (same name, looser hints)║
 ║  4. scroll(down) to trigger lazy-loaded content, then retry      ║
-║  5. Only after 3 failed attempts: note the failure in answer     ║
-║     e.g. "Slack: could not retrieve data after 3 attempts —      ║
-║     please check manually" — then continue to next stage         ║
-║  NEVER call finish with fabricated data for a failed stage.      ║
+║  5. Only after 3 failed attempts: note it in answer and continue ║
+║     e.g. "Slack: scraper could not run after 3 attempts"         ║
+║                                                                  ║
+║  Zero rows from a working scraper = valid empty state.           ║
+║  Confirm with screenshot, note it, move on. Do NOT retry 3x.    ║
+║  NEVER fabricate data for any stage.                             ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 ────────────────────────────────────────────────────────────
@@ -2196,19 +2221,20 @@ Pipeline: [Sheets: read leads] → [LinkedIn: enrich each (loop)] → [Sheets: w
 4. Verify 5 random rows → finish with stats
 
 ────────────────────────────────────────────────────────────
-PIPELINE EXAMPLE 4 — Conference Research (Web + LinkedIn + Notion)
+PIPELINE EXAMPLE 4 — Outreach Prep (HubSpot + LinkedIn + Gmail)
 ────────────────────────────────────────────────────────────
-Task: "I'm going to CES. Find speakers most relevant to us, check LinkedIn connections, prep a shortlist in Notion"
-Pipeline: [CES site: speakers] → [LinkedIn: check top 20] → [Notion: shortlist table]
+Task: "Pull my HubSpot contacts who haven't been contacted in 30 days, enrich on LinkedIn, draft a follow-up email in Gmail"
+Pipeline: [HubSpot: stale contacts] → [LinkedIn: enrich each] → [Gmail: draft outreach]
 
-1. Search Google: "CES 2026 speakers" → navigate to conference agenda page
-2. extractSchema(name="ces_speakers", schema={name, title, company, topic, session_time}) → filter for relevance
-3. For top 20 relevant speakers:
+1. navigate(app.hubspot.com) → Contacts → filter "Last contacted > 30 days ago"
+2. extractSchema(name="stale_contacts", schema={name:"contact name", email:"email address", company:"company", last_contact:"last contact date"})
+3. For each contact:
    a. navigate(linkedin.com) → search "[Name] [Company]"
-   b. extractSchema(name="speaker_profiles", schema={name, linkedin_url, connection_degree, recent_post})
-4. navigate(notion.so) → create "CES 2026 — Speaker Shortlist" page
-5. Create table: Name, Company, Topic, Relevance, Connection, Action; fill with top 10
-6. finish(answer="Created shortlist at [Notion URL]. Top picks: [list with connection status]")
+   b. extractSchema(name="linkedin_enriched", schema={name, title, company, recent_post:"most recent post topic"})
+4. navigate(mail.google.com) → Compose → draft follow-up email for the first contact using LinkedIn context
+5. waitForApproval with previewData={to, subject, body}
+6. After approval: Send → confirm in Sent folder
+7. finish(answer="Drafted and sent outreach to N contacts. [names and status]")
 
 ────────────────────────────────────────────────────────────
 COMPLETION — MANDATORY
@@ -2290,8 +2316,15 @@ DO NOT call finish after completing only some stages. Work through every stage i
   // Detect which apps/sources are mentioned in the goal and return pipeline
   // stages with per-source extraction instructions. Order: input sources →
   // lookup/enrichment sources → output destinations.
+  //
+  // Only analyze the core task — NOT injected context from previous workflow steps.
+  // Context blocks start with "Background context:" or "Results from previous steps:".
+  // Without this truncation, email/calendar data mentioning e.g. "CES 2026" would
+  // cause the detector to add a Conference stage to unrelated tasks.
   private detectPipelineStages(goal: string): Array<{ label: string; instruction: string }> {
-    const lower = goal.toLowerCase();
+    const contextSepIdx = goal.search(/\n\n(Background context:|Results from previous steps:)/);
+    const coreTask = contextSepIdx >= 0 ? goal.slice(0, contextSepIdx) : goal;
+    const lower = coreTask.toLowerCase();
     const stages: Array<{ label: string; instruction: string }> = [];
 
     // ── Input / data-read sources ──────────────────────────────────────────

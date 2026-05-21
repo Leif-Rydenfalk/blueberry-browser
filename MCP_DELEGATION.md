@@ -38,14 +38,15 @@ Blueberry binds a localhost port at startup (default **7777**, override with
 | `event:` | Payload | Description |
 |----------|---------|-------------|
 | `request` | `McpRequestEvent` | Task received and queued |
-| `progress` | `McpProgressEvent` | One event per agent step — fires continuously during execution |
-| `complete` | `McpCompletionEvent` | Task finished — carries the final answer |
+| `progress` | `McpProgressEvent` | One event per agent action — fires continuously during execution |
+| `workflow-step` | `McpWorkflowStepEvent` | One event per workflow step — carries the step's answer immediately after it completes |
+| `complete` | `McpCompletionEvent` | Full task finished — carries the final answer |
 | `login-required` | `McpLoginRequiredEvent` | Agent hit a login wall, blocked until human signs in |
 
-`progress` events are the primary traceability mechanism. Each one carries the
-step number, action type, agent reasoning, and current status so the calling
-agent can track execution, detect when partial data is usable, and decide
-whether to steer the agent via `steer_task`.
+`progress` events fire for every individual agent action (navigate, click, extractSchema, etc.).
+`workflow-step` events fire once per `delegate_workflow` step and carry the step's answer — subscribe
+to these to receive partial answers in real time rather than waiting for the full HTTP response on
+long-running workflows. Both carry the `taskId` so you can correlate with the original request.
 
 A caller that only wants the final answer can ignore SSE and just `POST /mcp`
 with `tools/call`.
@@ -306,6 +307,28 @@ partial data.
 The calling agent should watch for `status: "error"` on repeated steps and
 consider calling `steer_task` to redirect. Watch `stepNum / maxSteps` to
 know how much budget remains.
+
+### `workflow-step` — per-workflow-step completion
+
+Fires once per step in a `delegate_workflow` call, immediately after that step's agent run
+finishes. Carries the step answer so you have usable partial data before the full HTTP response.
+
+```jsonc
+{
+  "taskId":              "uuid",        // correlates with the delegate_workflow request
+  "workflowStepName":    "gmail",       // the step's name field
+  "workflowStepIndex":   0,             // 0-based index
+  "totalWorkflowSteps":  3,             // total steps in this workflow
+  "status":             "completed",    // "completed" | "error" | "aborted"
+  "answer":             "# Gmail...",   // the step's final answer (may be null on error)
+  "agentStepCount":      16,            // number of agent actions this step took
+  "completedAt":         1716300100000
+}
+```
+
+For long-running workflows (Gmail + Calendar + Slack briefs can run 20+ minutes), subscribing
+to `workflow-step` events lets you display partial answers to the user as each source completes
+rather than waiting for the full response.
 
 ---
 
