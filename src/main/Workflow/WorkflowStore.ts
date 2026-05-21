@@ -10,6 +10,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import * as path from "node:path";
+import { formatCsvRow } from "../../shared/csv";
 import type {
   Workflow,
   WorkflowStep,
@@ -136,26 +137,13 @@ export class WorkflowStore {
     const headerNeeded = !(await pathExists(csvPath));
     if (headerNeeded) {
       const headers = [...columns, "_answer", "_error"];
-      await writeFile(csvPath, this.csvRow(headers) + "\n", "utf-8");
+      await writeFile(csvPath, formatCsvRow(headers) + "\n", "utf-8");
     }
 
     const values = columns.map((c) => row[c] ?? "");
-    const line = this.csvRow([...values, answer || "", error || ""]);
+    const line = formatCsvRow([...values, answer || "", error || ""]);
     await appendFile(csvPath, line + "\n", "utf-8");
     return csvPath;
-  }
-
-  // RFC-4180 minimal: quote fields containing comma, quote, or newline.
-  private csvRow(values: ReadonlyArray<string>): string {
-    return values
-      .map((raw) => {
-        const s = String(raw ?? "");
-        if (/[",\n\r]/.test(s)) {
-          return `"${s.replace(/"/g, '""')}"`;
-        }
-        return s;
-      })
-      .join(",");
   }
 
   async listSummaries(): Promise<WorkflowSummary[]> {

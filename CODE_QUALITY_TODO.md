@@ -6,7 +6,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done
 
 ---
 
-## 1. ☐ Delete dead code (AgentRunner + systemPrompts)
+## 1. ☑ Delete dead code (AgentRunner + systemPrompts)
 
 **Files to delete**
 - `src/main/Agent/core/AgentRunner.ts` — 1237 LOC, class never instantiated anywhere
@@ -27,7 +27,7 @@ Status legend: ☐ todo · ◐ in progress · ☑ done
 
 ---
 
-## 2. ☐ Refresh `CODING_STANDARDS.md §6` (Agent System)
+## 2. ☑ Refresh `CODING_STANDARDS.md §6` (Agent System)
 
 Current text describes the obsolete JSON-parsing loop. Rewrite to match the live architecture:
 
@@ -38,7 +38,7 @@ Current text describes the obsolete JSON-parsing loop. Rewrite to match the live
 
 ---
 
-## 3. ☐ Async I/O in main-process stores
+## 3. ☑ Async I/O in main-process stores
 
 Three files use synchronous `fs` calls on the main thread. Convert to `fs/promises`.
 
@@ -57,25 +57,13 @@ Three files use synchronous `fs` calls on the main thread. Convert to `fs/promis
 
 ---
 
-## 4. ☐ Consolidate CSV parsing with `papaparse`
+## 4. ☑ Consolidate CSV parsing with `papaparse`
 
-**Five hand-rolled CSV implementations**
+Replaced **four** hand-rolled implementations with `src/shared/csv.ts` (parseTable + parseDataset + formatCsvRow wrappers over papaparse). Added `src/shared/**/*` to both tsconfigs.
 
-| File:line | Purpose | Notes |
-|---|---|---|
-| `src/renderer/sidebar/src/components/CsvViewer.tsx:17` | `parseCsv` for display | Full RFC-4180 state machine |
-| `src/main/Workflow/WorkflowIpcHandler.ts:140` | `parseCsv` for dataset import | Near-copy of WorkflowPanel's |
-| `src/renderer/sidebar/src/components/WorkflowPanel.tsx:28` | `parseCsvText` for file upload | Near-copy of IpcHandler's |
-| `src/renderer/sidebar/src/contexts/AgentContext.tsx:21` | naive `split("\n")` parse | Will break on quoted newlines |
-| `src/main/Workflow/WorkflowStore.ts:132` | `csvRow` writer | Write side, also hand-rolled |
+The fifth callsite I had flagged — `AgentContext.tsx:21` — turned out NOT to be a real parser: it's a row-count summariser inside a context-compression pass (`csv.trim().split("\n")` to estimate row count for a markdown CSV code block). Forcing papaparse there would be over-engineering for a tolerant heuristic.
 
-**Approach**
-- `pnpm add papaparse @types/papaparse`
-- Create `src/shared/csv.ts` exposing `parseCsv(text)` and `formatCsvRow(values)` thin wrappers (papaparse for parse, papaparse `unparse` for row write)
-- Replace all five call sites
-- Delete the inline parsers
-
-**Risk:** medium — bulk run CSV format is consumed externally; verify round-trip with an existing run output.
+**Behavioural delta noted:** papaparse's `unparse` quotes leading/trailing whitespace where the old `csvRow` didn't. This is strictly more correct (RFC-4180) — old code would lose whitespace on round-trip. Any conformant CSV reader sees both identically.
 
 ---
 
@@ -144,13 +132,13 @@ Lines 55, 61, 148, 154 — `(msg: any)` and `(p: any)` across the IPC boundary. 
 ## Execution order
 
 ```
-1. Delete dead code         (5 min, zero risk)
-2. Refresh standards §6     (5 min, zero risk)
-3. Async I/O                (30 min, low risk)
-4. CSV → papaparse          (45 min, medium risk — verify round-trip)
-5. AgentPanel any cleanup   (10 min, zero risk)
-6. McpAgentRunner split     (90 min, medium risk — incremental)
-7. ChatContext any cleanup  (15 min, zero risk)
+1. Delete dead code         (5 min, zero risk)      ☑ commit e09651e
+2. Refresh standards §6     (5 min, zero risk)      ☑ commit e09651e
+3. Async I/O                (30 min, low risk)      ☑ commit 30701f1
+4. CSV → papaparse          (45 min, medium risk)   ☑ this commit
+5. AgentPanel any cleanup   (10 min, zero risk)     ☐
+6. McpAgentRunner split     (90 min, medium risk)   ☐
+7. ChatContext any cleanup  (15 min, zero risk)     ☐
 ```
 
 Run `npm run typecheck` after each item. Commit between items.

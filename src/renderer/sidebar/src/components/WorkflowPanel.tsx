@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useWorkflow } from "../contexts/WorkflowContext";
 import { cn } from "@common/lib/utils";
+import { parseDataset } from "../../../../shared/csv";
 import {
   Circle,
   Play,
@@ -24,63 +25,9 @@ interface WorkflowDataset {
   source?: string;
 }
 
-// Minimal RFC-4180-ish parser: quoted fields, escaped quotes (""), embedded newlines.
 function parseCsvText(text: string, source?: string): WorkflowDataset {
-  const rows: string[][] = [];
-  let current: string[] = [];
-  let field = "";
-  let inQuotes = false;
-  const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  for (let i = 0; i < normalized.length; i++) {
-    const ch = normalized[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (normalized[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += ch;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-      continue;
-    }
-    if (ch === ",") {
-      current.push(field);
-      field = "";
-      continue;
-    }
-    if (ch === "\n") {
-      current.push(field);
-      rows.push(current);
-      current = [];
-      field = "";
-      continue;
-    }
-    field += ch;
-  }
-  if (field.length > 0 || current.length > 0) {
-    current.push(field);
-    rows.push(current);
-  }
-  if (rows.length === 0) return { columns: [], rows: [], source };
-  const header = rows[0].map((c) => c.trim()).filter((c) => c.length > 0);
-  const data: Record<string, string>[] = [];
-  for (let r = 1; r < rows.length; r++) {
-    const row = rows[r];
-    if (row.every((v) => v.trim() === "")) continue;
-    const obj: Record<string, string> = {};
-    header.forEach((col, idx) => {
-      obj[col] = (row[idx] ?? "").trim();
-    });
-    data.push(obj);
-  }
-  return { columns: header, rows: data, source };
+  const parsed = parseDataset(text);
+  return { columns: parsed.columns, rows: parsed.rows, source };
 }
 
 const formatDuration = (ms: number): string => {

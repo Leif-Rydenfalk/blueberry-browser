@@ -1,78 +1,15 @@
 import React, { useMemo, useState } from "react";
 import { Copy, Check, Download, Table2, FileText } from "lucide-react";
 import { cn } from "@common/lib/utils";
+import { parseTable } from "../../../../shared/csv";
 
 interface CsvViewerProps {
   readonly csv: string;
   readonly title?: string;
 }
 
-interface ParsedCsv {
-  readonly header: ReadonlyArray<string>;
-  readonly rows: ReadonlyArray<ReadonlyArray<string>>;
-}
-
-// Single-pass CSV parser — handles quoted cells with embedded commas / quotes /
-// newlines per RFC 4180. The agent's bucketToCsvSection emits this format.
-function parseCsv(text: string): ParsedCsv {
-  const records: string[][] = [];
-  let row: string[] = [];
-  let cell = "";
-  let inQuotes = false;
-  let i = 0;
-  while (i < text.length) {
-    const ch = text[i];
-    if (inQuotes) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          cell += '"';
-          i += 2;
-          continue;
-        }
-        inQuotes = false;
-        i++;
-        continue;
-      }
-      cell += ch;
-      i++;
-      continue;
-    }
-    if (ch === '"') {
-      inQuotes = true;
-      i++;
-      continue;
-    }
-    if (ch === ",") {
-      row.push(cell);
-      cell = "";
-      i++;
-      continue;
-    }
-    if (ch === "\r") {
-      i++;
-      continue;
-    }
-    if (ch === "\n") {
-      row.push(cell);
-      records.push(row);
-      row = [];
-      cell = "";
-      i++;
-      continue;
-    }
-    cell += ch;
-    i++;
-  }
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell);
-    records.push(row);
-  }
-  if (records.length === 0) return { header: [], rows: [] };
-  return { header: records[0], rows: records.slice(1) };
-}
-
 export const CsvViewer: React.FC<CsvViewerProps> = ({ csv, title }) => {
-  const parsed = useMemo(() => parseCsv(csv.trim()), [csv]);
+  const parsed = useMemo(() => parseTable(csv), [csv]);
   const [copied, setCopied] = useState(false);
   const [view, setView] = useState<"table" | "raw">("table");
 
