@@ -152,7 +152,7 @@ Blueberry binds an MCP server on `http://127.0.0.1:7777` at startup. Two transpo
 | `delegate_task` | Single natural-language task executed in the real browser |
 | `delegate_workflow` | Multi-step sequential workflow across apps; earlier results injected as context into later steps |
 
-See [`MCP_DELEGATION.md`](./MCP_DELEGATION.md) for the full schema, example payloads, and SSE event format.
+See [`docs/MCP_DELEGATION.md`](./docs/MCP_DELEGATION.md) for the full schema, example payloads, and SSE event format.
 
 ---
 
@@ -238,7 +238,7 @@ pnpm test --filter=lead-enrichment
 npx electron out/main/index.js --test --compat-only
 ```
 
-See [`TESTING.md`](./TESTING.md) for the full test catalogue (18 tasks across 7 complexity tiers, including Tier 7 cross-app workflows that mirror real production delegation patterns).
+See [`docs/TESTING.md`](./docs/TESTING.md) for the full test catalogue (18 tasks across 7 complexity tiers, including Tier 7 cross-app workflows that mirror real production delegation patterns).
 
 ---
 
@@ -260,19 +260,19 @@ See [`TESTING.md`](./TESTING.md) for the full test catalogue (18 tasks across 7 
 
 | File | Purpose |
 |------|---------|
-| [`CODING_STANDARDS.md`](./CODING_STANDARDS.md) | Architecture, naming, TypeScript rules, IPC contract, adding a new feature |
-| [`DESIGN.md`](./DESIGN.md) | Brand, color system, component patterns, dark mode rules |
-| [`TESTING.md`](./TESTING.md) | How to run tests, task catalogue, adding new tasks, failure diagnosis |
-| [`MCP_DELEGATION.md`](./MCP_DELEGATION.md) | MCP protocol, tool schemas, example payloads, SSE event format |
-| [`ROADMAP.md`](./ROADMAP.md) | Shipped tracks (1–2, 4–7) and what's next (Track 3) |
-| [`LOGIN_FLOW.md`](./LOGIN_FLOW.md) | Login-wall gate design, code map, failure modes |
-| [`WORKFLOW_SYSTEM.md`](./WORKFLOW_SYSTEM.md) | Workflow recorder internals, bulk execution, dataset binding |
+| [`docs/CODING_STANDARDS.md`](./docs/CODING_STANDARDS.md) | Architecture, naming, TypeScript rules, IPC contract, adding a new feature |
+| [`docs/DESIGN.md`](./docs/DESIGN.md) | Brand, color system, component patterns, dark mode rules |
+| [`docs/TESTING.md`](./docs/TESTING.md) | How to run tests, task catalogue, adding new tasks, failure diagnosis |
+| [`docs/MCP_DELEGATION.md`](./docs/MCP_DELEGATION.md) | MCP protocol, tool schemas, example payloads, SSE event format |
+| [`docs/ROADMAP.md`](./docs/ROADMAP.md) | Shipped tracks (1–2, 4–7) and what's next (Track 3) |
+| [`docs/LOGIN_FLOW.md`](./docs/LOGIN_FLOW.md) | Login-wall gate design, code map, failure modes |
+| [`docs/WORKFLOW_SYSTEM.md`](./docs/WORKFLOW_SYSTEM.md) | Workflow recorder internals, bulk execution, dataset binding |
 
 ---
 
 ## What's Next
 
-The shipped features are all in [`ROADMAP.md`](./ROADMAP.md). The one remaining track that isn't yet built:
+The shipped features are all in [`docs/ROADMAP.md`](./docs/ROADMAP.md). The one remaining track that isn't yet built:
 
 **Track 3 — Background Execution.** Right now the agent runs in the active foreground tab — while it works, the browser is locked. The fix is spawning a hidden off-screen `WebContentsView` per run so the agent works in the background and you keep the foreground. Combined with the bulk runner this enables N parallel rows against hidden tabs without interrupting normal browsing.
 

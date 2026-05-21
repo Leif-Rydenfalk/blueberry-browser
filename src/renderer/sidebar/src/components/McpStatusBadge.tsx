@@ -4,7 +4,7 @@ import { cn } from "@common/lib/utils";
 
 // Small status indicator shown above the sidebar tabs. Tells the user that
 // Blueberry is reachable by other agents (Hermes, Claude, n8n, …) and shows
-// the latest inbound delegation request. See MCP_DELEGATION.md.
+// the latest inbound delegation request. See docs/MCP_DELEGATION.md.
 
 const PULSE_DURATION_MS = 2400;
 

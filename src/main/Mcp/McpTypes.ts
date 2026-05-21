@@ -1,5 +1,5 @@
 // MCP (Model Context Protocol) types and tool schemas for Blueberry's
-// delegation endpoint. See MCP_DELEGATION.md for the protocol overview.
+// delegation endpoint. See docs/MCP_DELEGATION.md for the protocol overview.
 //
 // We hand-roll the wire format (JSON-RPC 2.0) rather than depend on
 // @modelcontextprotocol/sdk because the surface is tiny (initialize +

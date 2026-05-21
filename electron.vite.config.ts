@@ -11,7 +11,7 @@ export default defineConfig({
           index: resolve(__dirname, "src/main/index.ts"),
           // Stdio bridge for the MCP delegation endpoint. Bundles to
           // out/main/mcp-stdio.js so external agent frameworks can spawn it
-          // as a child process. See MCP_DELEGATION.md.
+          // as a child process. See docs/MCP_DELEGATION.md.
           "mcp-stdio": resolve(__dirname, "src/main/Mcp/blueberryMcpCli.ts"),
         },
       },
