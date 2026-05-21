@@ -19,7 +19,9 @@ export class TopBar {
         preload: join(__dirname, "../preload/topbar.js"),
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: true,
+        // sandbox:false required — same reason as SideBar: compiled preload has
+        // a relative require('./chunks/...') that Electron's sandbox polyfill blocks.
+        sandbox: false,
       },
     });
 

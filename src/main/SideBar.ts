@@ -55,7 +55,10 @@ export class SideBar {
         preload: join(__dirname, "../preload/sidebar.js"),
         nodeIntegration: false,
         contextIsolation: true,
-        sandbox: true,
+        // sandbox:false required — the compiled preload loads a relative-path
+        // chunk (require('./chunks/...')), which Electron's sandbox polyfill
+        // blocks. SideBar loads a trusted internal build, so this is acceptable.
+        sandbox: false,
       },
     });
 
